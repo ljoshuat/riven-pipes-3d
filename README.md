@@ -50,6 +50,7 @@ Hovering 01/02/03 highlights the matching weld ring on the 3D drawing in the sit
 | `data-pipe-rest-x` / `data-pipe-rest-y` | 0.547 / 0.5 | resting focus point (0–1) |
 | `data-pipe-zoom1` / `zoom2` / `zoom3` | 3.2 / 3.84 / 3.4 | how far each 01/02/03 hover zooms in |
 | `data-pipe-zoom-time` | 0.9 | zoom duration (seconds) |
+| `data-pipe-zoom1-x` / `-y` (and 2, 3) | 01: 0.376 / 0.105 | focus point of each stop (0–1 across the drawing) |
 
 ![Tuning panel](docs/preview-tuning-panel.png)
 

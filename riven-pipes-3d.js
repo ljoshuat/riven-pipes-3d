@@ -448,13 +448,19 @@ window.RivenPipesG = G;
     ["zoom1", "Zoom 01 amount", 1, 6, 0.05, "--zoom-1-s", ""],
     ["zoom2", "Zoom 02 amount", 1, 6, 0.05, "--zoom-2-s", ""],
     ["zoom3", "Zoom 03 amount", 1, 6, 0.05, "--zoom-3-s", ""],
+    ["zoom1X", "Zoom 01 focus X", 0, 1, 0.005, "--zoom-1-x", ""], ["zoom1Y", "Zoom 01 focus Y", 0, 1, 0.005, "--zoom-1-y", ""],
+    ["zoom2X", "Zoom 02 focus X", 0, 1, 0.005, "--zoom-2-x", ""], ["zoom2Y", "Zoom 02 focus Y", 0, 1, 0.005, "--zoom-2-y", ""],
+    ["zoom3X", "Zoom 03 focus X", 0, 1, 0.005, "--zoom-3-x", ""], ["zoom3Y", "Zoom 03 focus Y", 0, 1, 0.005, "--zoom-3-y", ""],
     ["zoomTime", "Zoom duration s", 0.2, 2.5, 0.05, "--zoom-duration", "s"]];
+  // built-in overrides of the section's CSS: 01 now centres on the top elbow it highlights
+  var ZOOM_DEFAULTS = { zoom1X: 0.376, zoom1Y: 0.105 };
   var attrName = function (k) { return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }); };
   function readZoom(el) {
     var cs = getComputedStyle(el), Z = { set: {} };
     ZCTRL.forEach(function (c) {
       var a = el.getAttribute(attrName(c[0]));
       if (a !== null && a !== "") { Z[c[0]] = parseFloat(a); Z.set[c[0]] = true; }
+      else if (ZOOM_DEFAULTS[c[0]] != null) { Z[c[0]] = ZOOM_DEFAULTS[c[0]]; Z.set[c[0]] = true; }
       else {
         var v = parseFloat(cs.getPropertyValue(c[5]));
         Z[c[0]] = isNaN(v) ? (c[0] === "restZoom" ? 1 : c[0] === "zoomTime" ? 0.9 : 0.5) : v;
@@ -468,7 +474,12 @@ window.RivenPipesG = G;
     var css = ZCTRL.filter(function (c) { return Z.set[c[0]]; }).map(function (c) { return c[5] + ":" + Z[c[0]] + c[6]; }).join(";");
     var st = document.getElementById("pipes3d-zoom-vars");
     if (!st) { st = document.createElement("style"); st.id = "pipes3d-zoom-vars"; document.head.appendChild(st); }
-    st.textContent = css ? ".flow-illustration.zoom[data-pipes3d]{" + css + "}" : "";
+    // The 3D view can show beyond the old image edges, so drop the CSS edge clamp and let every
+    // stop centre on its focus point (the image and CSS spots are hidden while 3D runs).
+    st.textContent = (css ? ".flow-illustration.zoom[data-pipes3d]{" + css + "}" : "") +
+      '.flow-illustration.zoom[data-pipes3d="ready"] .zoom-stage{transform:translate(' +
+      "calc(50cqw - var(--zoom-s,1) * var(--zoom-x,.5) * var(--zoom-w))," +
+      "calc(50cqh - var(--zoom-s,1) * var(--zoom-y,.5) * var(--zoom-h))) scale(var(--zoom-s,1))}";
   }
   function readLook(el) {
     var L = Object.assign({}, DEFAULTS);
@@ -770,7 +781,7 @@ window.RivenPipesG = G;
     box.innerHTML = html; document.body.appendChild(box);
     var ta = box.querySelector("textarea");
     function dump() {
-      var z = ZCTRL.filter(function (c) { return ZOOM.set[c[0]]; }).map(function (c) { return attrName(c[0]) + " = " + ZOOM[c[0]]; });
+      var z = ZCTRL.filter(function (c) { return ZOOM.set[c[0]] && ZOOM[c[0]] !== ZOOM_DEFAULTS[c[0]]; }).map(function (c) { return attrName(c[0]) + " = " + ZOOM[c[0]]; });
       var l = Object.keys(DEFAULTS).filter(function (k) { return k !== "color" && LOOK[k] !== DEFAULTS[k]; }).map(function (k) {
         return attrName(k) + " = " + LOOK[k];
       });
@@ -804,7 +815,7 @@ window.RivenPipesG = G;
         ZOOM[zk] = parseFloat(e.target.value); ZOOM.set[zk] = true;
         box.querySelector("[data-zo='" + zk + "']").textContent = ZOOM[zk];
         applyZoom(ZOOM);
-        if (/^zoom\d$/.test(zk) && preview !== +zk.slice(4)) preview = +zk.slice(4);
+        var mm = zk.match(/^zoom(\d)/); if (mm) preview = +mm[1];
         if (/^rest/.test(zk)) preview = 0;
         showPreview(); dump(); return;
       }
