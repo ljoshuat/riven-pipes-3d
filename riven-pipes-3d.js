@@ -1118,7 +1118,7 @@ window.RivenPipesG = G;
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
-        Array.prototype.some.call(frames, function (f) { return f.getAttribute("data-pipe-mode") === "stainless"; });
+        (!/[?&]pipes-lines\b/.test(location.search) && Array.prototype.some.call(frames, function (f) { return (f.getAttribute("data-pipe-mode") || DEFAULTS.mode) === "stainless"; }));
       loadDeps(needSteel ? ["examples/js/environments/RoomEnvironment.js", "examples/js/loaders/RGBELoader.js"] : null).then(function () {
         if (!THREE.LineSegments2) return;
         frames.forEach(function (f) { try { mount(f); } catch (e) { console.warn("pipes3d", e); } });
