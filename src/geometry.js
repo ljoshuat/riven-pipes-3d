@@ -306,7 +306,9 @@ const G = (() => {
       const D = FLD(P.r);
       // weld bead where the flange hub meets the pipe, plus a second ring for a clear band
       highlights[n] = { rings: [ringAt(P, P.flanges[fi] + side * D.hub, P.r * 1.015),
-                                ringAt(P, P.flanges[fi] + side * (D.hub - 0.06 * P.r), P.r * 1.03)], lines: [] };
+                                ringAt(P, P.flanges[fi] + side * (D.hub - 0.06 * P.r), P.r * 1.03),
+                                // one more ring just past the weld, out on the pipe
+                                ringAt(P, P.flanges[fi] + side * (D.hub + 0.12 * P.r), P.r * 1.012)], lines: [] };
     }
     // 03: the small elbow's flange joint: every ring of the flange pair plus the bolt outlines
     {
