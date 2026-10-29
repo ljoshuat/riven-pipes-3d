@@ -172,7 +172,9 @@ const G = (() => {
   function build(opts) {
     const { nLines = 24, ringGap = 1.5, nBolts = 8, seg = 96, nutDetail = true } = opts;
     const pipes = pipesFromNet();
-    const parts = [], detail = [], rings = [], saddles = [];
+    const parts = [], detail = [], rings = [], saddles = [], highlights = {};
+    // weld rings highlighted for each hover stop: [stop, pipe id, flange index, side (-1 upstream hub, +1 downstream hub)]
+    const HL = [[1, "A", 2, -1], [2, "main", 1, 1], [3, "C", 0, -1]];
 
     for (const P of pipes) {
       const { r, path } = P, D = FLD(r), Lp = path.length;
@@ -289,7 +291,18 @@ const G = (() => {
         saddles.push(pts);
       }
     }
-    return { parts, detail, rings, saddles };
+    for (const [n, id, fi, side] of HL) {
+      const P = pipes.find((q) => q.id === id); if (!P || P.flanges[fi] == null) continue;
+      const D = FLD(P.r), out = [];
+      // weld bead where the flange hub meets the pipe, plus the hub-to-face ring for a clear band
+      for (const [s, rr] of [[P.flanges[fi] + side * D.hub, P.r * 1.015], [P.flanges[fi] + side * (D.hub - 0.06 * P.r), P.r * 1.03]]) {
+        const F = P.path.frame(s), pts = [];
+        for (let j = 0; j <= 128; j++) { const t = 2 * Math.PI * j / 128; pts.push(add(F.c, add(mul(F.N, rr * Math.cos(t)), mul(F.B, rr * Math.sin(t))))); }
+        out.push(pts);
+      }
+      highlights[n] = out;
+    }
+    return { parts, detail, rings, saddles, highlights };
   }
 
   function featureSegments(parts, filter = () => true) {

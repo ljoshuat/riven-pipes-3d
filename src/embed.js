@@ -12,19 +12,51 @@
   // Defaults. Each can be overridden per element with a data attribute on the zoom frame,
   // e.g. data-pipe-lines="20" (set in Bricks: element > Attributes), or tuned live with ?pipes-tune
   var DEFAULTS = { lines: 24, rings: 1.5, bolts: 8, smooth: 96, outline: 1.4, detail: 0.7, detailOpacity: 0.6,
-                   ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "" };
+                   ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "", highlight: 3, highlightColor: "" };
   var CTRL = [
     ["lines", "Lines around pipe", 0, 48, 4], ["rings", "Ring spacing (0 = off)", 0, 4, 0.25],
     ["bolts", "Bolts per flange", 4, 12, 2], ["smooth", "Surface smoothness", 24, 160, 8],
     ["outline", "Outline weight px", 0.4, 4, 0.1], ["detail", "Detail weight px", 0.2, 2.5, 0.1],
     ["detailOpacity", "Detail brightness", 0.05, 1, 0.05], ["ringOpacity", "Ring brightness", 0, 1, 0.05],
-    ["hidden", "Seen-through lines", 0, 0.6, 0.02], ["swing", "Zoom swing", 0, 3, 0.1], ["tilt", "Pointer tilt", 0, 3, 0.1]];
+    ["hidden", "Seen-through lines", 0, 0.6, 0.02], ["swing", "Zoom swing", 0, 3, 0.1], ["tilt", "Pointer tilt", 0, 3, 0.1],
+    ["highlight", "Weld highlight px", 0, 8, 0.25]];
   var REBUILD = { lines: 1, rings: 1, bolts: 1, smooth: 1 };
+  // Zoom controls drive the section's existing CSS zoom variables, so the highlight spots stay aligned.
+  // [key, label, min, max, step, css variable, unit]
+  var ZCTRL = [
+    ["restZoom", "Resting zoom", 1, 2.5, 0.05, "--zoom-s", ""],
+    ["restX", "Resting focus X", 0, 1, 0.005, "--zoom-x", ""],
+    ["restY", "Resting focus Y", 0, 1, 0.005, "--zoom-y", ""],
+    ["zoom1", "Zoom 01 amount", 1, 6, 0.05, "--zoom-1-s", ""],
+    ["zoom2", "Zoom 02 amount", 1, 6, 0.05, "--zoom-2-s", ""],
+    ["zoom3", "Zoom 03 amount", 1, 6, 0.05, "--zoom-3-s", ""],
+    ["zoomTime", "Zoom duration s", 0.2, 2.5, 0.05, "--zoom-duration", "s"]];
+  var attrName = function (k) { return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }); };
+  function readZoom(el) {
+    var cs = getComputedStyle(el), Z = { set: {} };
+    ZCTRL.forEach(function (c) {
+      var a = el.getAttribute(attrName(c[0]));
+      if (a !== null && a !== "") { Z[c[0]] = parseFloat(a); Z.set[c[0]] = true; }
+      else {
+        var v = parseFloat(cs.getPropertyValue(c[5]));
+        Z[c[0]] = isNaN(v) ? (c[0] === "restZoom" ? 1 : c[0] === "zoomTime" ? 0.9 : 0.5) : v;
+      }
+    });
+    Z.base = Object.assign({}, Z); delete Z.base.set;
+    return Z;
+  }
+  // Lower specificity than the hover rules, so 01/02/03 still take over on hover.
+  function applyZoom(Z) {
+    var css = ZCTRL.filter(function (c) { return Z.set[c[0]]; }).map(function (c) { return c[5] + ":" + Z[c[0]] + c[6]; }).join(";");
+    var st = document.getElementById("pipes3d-zoom-vars");
+    if (!st) { st = document.createElement("style"); st.id = "pipes3d-zoom-vars"; document.head.appendChild(st); }
+    st.textContent = css ? ".flow-illustration.zoom[data-pipes3d]{" + css + "}" : "";
+  }
   function readLook(el) {
     var L = Object.assign({}, DEFAULTS);
     Object.keys(DEFAULTS).forEach(function (k) {
       var a = el.getAttribute("data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }));
-      if (a !== null && a !== "") L[k] = k === "color" ? a : parseFloat(a);
+      if (a !== null && a !== "") L[k] = /color/i.test(k) ? a : parseFloat(a);
     });
     return L;
   }
@@ -54,6 +86,7 @@
     if (!stage || frame.dataset.pipes3d) return;
     frame.dataset.pipes3d = "loading";
     var LOOK = readLook(frame);
+    var ZOOM = readZoom(frame); applyZoom(ZOOM);
     var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     var fine = matchMedia("(hover: hover) and (pointer: fine)").matches;
 
@@ -98,12 +131,16 @@
       detail: lineMat({ linewidth: 1, opacity: 1 }, true),
       ring: lineMat({ linewidth: 1, opacity: 1 }, true),
       hidden: lineMat({ linewidth: 1, opacity: 1, dashed: true, dashSize: 0.14, gapSize: 0.1 }, false),
+      hl: lineMat({ linewidth: 1, opacity: 0 }, true),
     };
+    var fcs = getComputedStyle(frame);
+    M.hl.color = new THREE.Color(LOOK.highlightColor || (fcs.getPropertyValue("--zoom-accent") || fcs.getPropertyValue("--color-blue") || "#1463ff").trim());
     function applyLook() {
       var pr = renderer.getPixelRatio();
       M.edge.linewidth = LOOK.outline * pr; M.detail.linewidth = LOOK.detail * pr;
       M.ring.linewidth = LOOK.detail * 0.85 * pr; M.hidden.linewidth = Math.max(0.6, LOOK.detail * 0.9 * pr);
       M.detail.opacity = LOOK.detailOpacity; M.ring.opacity = LOOK.ringOpacity; M.hidden.opacity = LOOK.hidden;
+      M.hl.linewidth = LOOK.highlight * pr;
       if (hidObj) hidObj.visible = LOOK.hidden > 0;
     }
     M.hidden.depthFunc = THREE.GreaterDepth;
@@ -118,7 +155,7 @@
     }
 
     var occMat = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1.5, polygonOffsetUnits: 2 });
-    var occ = null, detObj = null, ringObj = null, feature, featureBig, sil;
+    var occ = null, detObj = null, ringObj = null, feature, featureBig, sil, hlObjs = {};
     var edgeObj = null, hidObj = null, lastEye = null;
     function drop(o) { if (o) { scene.remove(o); o.geometry.dispose(); } }
     function build() {
@@ -128,6 +165,12 @@
       geo.setAttribute("position", new THREE.Float32BufferAttribute(mesh.pos, 3));
       geo.setIndex(mesh.idx);
       drop(occ); drop(detObj); drop(ringObj);
+      for (var hk in hlObjs) drop(hlObjs[hk]);
+      hlObjs = {};
+      Object.keys(model.highlights).forEach(function (n) {
+        hlObjs[n] = segObj(G.polylinesToSegments(model.highlights[n]), M.hl, 4);
+        hlObjs[n].visible = false; scene.add(hlObjs[n]);
+      });
       occ = new THREE.Mesh(geo, occMat); occ.renderOrder = 0; scene.add(occ);
       var saddle = G.polylinesToSegments(model.saddles);
       feature = G.featureSegments(model.parts).concat(saddle);
@@ -215,6 +258,26 @@
       wake();
     }
 
+    // weld highlight follows the hovered 01/02/03 row, fading in once the zoom has mostly arrived
+    var scopeEl = frame.closest(".zoom-scope") || document;
+    var hl = { stop: 0, since: 0, a: 0 };
+    function activeStop() {
+      var ts = scopeEl.querySelectorAll(".zoom-trigger");
+      for (var i = 0; i < ts.length; i++) if (ts[i].matches(":hover") || ts[i].matches(":focus-within")) return i + 1;
+      return +frame.getAttribute("data-pipes3d-preview") || 0;
+    }
+    function updateHighlight(t) {
+      var st = activeStop();
+      if (st !== hl.stop) { hl.stop = st; hl.since = t; hl.a = 0; }
+      var dur = (parseFloat(getComputedStyle(frame).getPropertyValue("--zoom-duration")) || 0.9) * 1000;
+      var target = 0;
+      if (hl.stop && hlObjs[hl.stop]) target = reduce ? 1 : Math.max(0, Math.min(1, (t - hl.since - dur * 0.6) / 300));
+      hl.a = target;
+      for (var n in hlObjs) hlObjs[n].visible = +n === hl.stop && hl.a > 0;
+      M.hl.opacity = hl.a;
+      return hl.stop && hl.a < 1;
+    }
+
     var raf = 0, visible = true, lastT = 0, lastKey = "";
     function frameLoop(t) {
       raf = 0;
@@ -222,6 +285,7 @@
       resize();
       var X = stageXform();
       var moving = placeCamera(X, dt);
+      if (updateHighlight(t)) moving = true;
       var key = X.s.toFixed(4) + "," + X.tx.toFixed(2) + "," + X.ty.toFixed(2);
       var cssMoving = key !== lastKey; lastKey = key;
       updateEdges();
@@ -246,20 +310,35 @@
 
     applyLook();
     frameLoop(performance.now());
-    if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, function (k) {
+    if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, function (k) {
       if (REBUILD[k]) { clearTimeout(tunePanel.t); tunePanel.t = setTimeout(function () { build(); wake(); }, 150); }
       applyLook(); lastEye = null; wake();
     });
     if (img) { img.style.transition = "opacity .4s"; img.style.opacity = "0"; }
+    // the 3D weld highlight replaces the CSS arc and dot
+    if (!document.getElementById("pipes3d-hide-spots")) {
+      var hs = document.createElement("style"); hs.id = "pipes3d-hide-spots";
+      hs.textContent = '.flow-illustration.zoom[data-pipes3d="ready"] .zoom-spot,.flow-illustration.zoom[data-pipes3d="ready"] .zoom-dot{display:none!important}';
+      document.head.appendChild(hs);
+    }
     frame.dataset.pipes3d = "ready";
   }
 
   // Live tuning panel: add ?pipes-tune to the page URL. Copies values as Bricks attributes.
-  function tunePanel(frame, LOOK, changed) {
+  function tunePanel(frame, LOOK, ZOOM, wake, changed) {
     var box = document.createElement("div");
     box.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:99999;width:260px;max-height:80vh;overflow:auto;" +
       "background:#111;color:#eee;font:12px/1.4 ui-monospace,Menlo,monospace;padding:12px;border:1px solid #333;border-radius:8px";
-    var html = "<b style='display:block;margin-bottom:8px'>Pipe linework</b>";
+    var hd = "display:block;margin:10px 0 4px;color:#9fd0e6;text-transform:uppercase;letter-spacing:.08em;font-size:11px";
+    var btn = "flex:1;padding:4px 0;background:#222;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer";
+    var html = "<b style='display:block;margin-bottom:4px'>Pipe linework</b><span style='" + hd + "'>Zoom</span>" +
+      "<div style='display:flex;gap:4px;margin-bottom:4px'>Preview:" +
+      ["Rest", "01", "02", "03"].map(function (t, i) { return "<button type='button' data-pv='" + i + "' style='" + btn + "'>" + t + "</button>"; }).join("") + "</div>";
+    ZCTRL.forEach(function (c) {
+      html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-zo='" + c[0] + "' style='float:right'>" + ZOOM[c[0]] + "</span>" +
+        "<input data-z='" + c[0] + "' type='range' min='" + c[2] + "' max='" + c[3] + "' step='" + c[4] + "' value='" + ZOOM[c[0]] + "' style='width:100%'></label>";
+    });
+    html += "<span style='" + hd + "'>Lines</span>";
     CTRL.forEach(function (c) {
       html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-o='" + c[0] + "' style='float:right'>" + LOOK[c[0]] + "</span>" +
         "<input data-k='" + c[0] + "' type='range' min='" + c[2] + "' max='" + c[3] + "' step='" + c[4] + "' value='" + LOOK[c[0]] + "' style='width:100%'></label>";
@@ -269,11 +348,44 @@
     box.innerHTML = html; document.body.appendChild(box);
     var ta = box.querySelector("textarea");
     function dump() {
-      ta.value = Object.keys(DEFAULTS).filter(function (k) { return k !== "color" && LOOK[k] !== DEFAULTS[k]; }).map(function (k) {
-        return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }) + " = " + LOOK[k];
-      }).join("\n") || "(all defaults)";
+      var z = ZCTRL.filter(function (c) { return ZOOM.set[c[0]]; }).map(function (c) { return attrName(c[0]) + " = " + ZOOM[c[0]]; });
+      var l = Object.keys(DEFAULTS).filter(function (k) { return k !== "color" && LOOK[k] !== DEFAULTS[k]; }).map(function (k) {
+        return attrName(k) + " = " + LOOK[k];
+      });
+      ta.value = z.concat(l).join("\n") || "(all defaults)";
     }
+    var preview = 0;
+    function showPreview() {
+      // force a zoom stop inline so it can be judged without hovering the list
+      var keys = ["--zoom-s", "--zoom-x", "--zoom-y"];
+      if (preview) frame.setAttribute("data-pipes3d-preview", preview); else frame.removeAttribute("data-pipes3d-preview");
+      if (!preview) keys.forEach(function (v) { frame.style.removeProperty(v); });
+      else {
+        var cs = getComputedStyle(frame);
+        frame.style.setProperty("--zoom-s", ZOOM["zoom" + preview]);
+        frame.style.setProperty("--zoom-x", cs.getPropertyValue("--zoom-" + preview + "-x"));
+        frame.style.setProperty("--zoom-y", cs.getPropertyValue("--zoom-" + preview + "-y"));
+      }
+      Array.prototype.forEach.call(box.querySelectorAll("[data-pv]"), function (b) {
+        b.style.background = +b.getAttribute("data-pv") === preview ? "#9fd0e6" : "#222";
+        b.style.color = +b.getAttribute("data-pv") === preview ? "#000" : "#eee";
+      });
+      wake();
+    }
+    box.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-pv]"); if (!b) return;
+      preview = +b.getAttribute("data-pv"); showPreview();
+    });
     box.addEventListener("input", function (e) {
+      var zk = e.target.getAttribute("data-z");
+      if (zk) {
+        ZOOM[zk] = parseFloat(e.target.value); ZOOM.set[zk] = true;
+        box.querySelector("[data-zo='" + zk + "']").textContent = ZOOM[zk];
+        applyZoom(ZOOM);
+        if (/^zoom\d$/.test(zk) && preview !== +zk.slice(4)) preview = +zk.slice(4);
+        if (/^rest/.test(zk)) preview = 0;
+        showPreview(); dump(); return;
+      }
       var k = e.target.getAttribute("data-k"); if (!k) return;
       LOOK[k] = parseFloat(e.target.value); box.querySelector("[data-o='" + k + "']").textContent = LOOK[k];
       dump(); changed(k);

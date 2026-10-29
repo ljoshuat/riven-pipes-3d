@@ -26,7 +26,9 @@ the viewport, and keeps the original image as the fallback.
 ## Fine-tuning
 
 Open the page with `?pipes-tune`, adjust the sliders, then **Copy as Bricks attributes** and add them
-to the zoom frame element (Style > Attributes).
+to the zoom frame element: in Bricks, the Div directly above "Zoom stage" (classes `flow-illustration` and `zoom`) > Style > Attributes.
+
+Hovering 01/02/03 highlights the matching weld ring on the 3D drawing in the site blue; the CSS arc and dot are hidden while the 3D view is active.
 
 | Attribute | Default | |
 |---|---|---|
@@ -42,6 +44,12 @@ to the zoom frame element (Style > Attributes).
 | `data-pipe-swing` | 1 | camera swing while zooming, 0 = off |
 | `data-pipe-tilt` | 1 | pointer tilt, 0 = off |
 | `data-pipe-color` | | line colour; blank = section text colour |
+| `data-pipe-highlight` | 3 | weld highlight width (px), 0 = off |
+| `data-pipe-highlight-color` | | highlight colour; blank = site blue (`--zoom-accent` / `--color-blue`) |
+| `data-pipe-rest-zoom` | 1 | resting zoom |
+| `data-pipe-rest-x` / `data-pipe-rest-y` | 0.547 / 0.5 | resting focus point (0–1) |
+| `data-pipe-zoom1` / `zoom2` / `zoom3` | 3.2 / 3.84 / 3.4 | how far each 01/02/03 hover zooms in |
+| `data-pipe-zoom-time` | 0.9 | zoom duration (seconds) |
 
 ![Tuning panel](docs/preview-tuning-panel.png)
 
