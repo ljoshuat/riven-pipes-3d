@@ -176,7 +176,7 @@ const G = (() => {
     const pipes = pipesFromNet();
     const parts = [], detail = [], rings = [], saddles = [], highlights = {};
     // weld rings highlighted for each hover stop: [stop, pipe id, flange index, side (-1 upstream hub, +1 downstream hub)]
-    const HL = [[1, "A", 2, -1], [2, "main", 1, 1], [3, "C", 0, -1]];
+    const HL = [[2, "main", 1, 1], [3, "C", 0, -1]];
 
     for (const P of pipes) {
       const { r, path } = P, D = FLD(r), Lp = path.length;
@@ -293,16 +293,36 @@ const G = (() => {
         saddles.push(pts);
       }
     }
+    const ringAt = (P, s, rr, seg = 128) => {
+      const F = P.path.frame(s), pts = [];
+      for (let j = 0; j <= seg; j++) { const t = 2 * Math.PI * j / seg; pts.push(add(F.c, add(mul(F.N, rr * Math.cos(t)), mul(F.B, rr * Math.sin(t))))); }
+      return pts;
+    };
     for (const [n, id, fi, side] of HL) {
       const P = pipes.find((q) => q.id === id); if (!P || P.flanges[fi] == null) continue;
-      const D = FLD(P.r), out = [];
-      // weld bead where the flange hub meets the pipe, plus the hub-to-face ring for a clear band
-      for (const [s, rr] of [[P.flanges[fi] + side * D.hub, P.r * 1.015], [P.flanges[fi] + side * (D.hub - 0.06 * P.r), P.r * 1.03]]) {
-        const F = P.path.frame(s), pts = [];
-        for (let j = 0; j <= 128; j++) { const t = 2 * Math.PI * j / 128; pts.push(add(F.c, add(mul(F.N, rr * Math.cos(t)), mul(F.B, rr * Math.sin(t))))); }
-        out.push(pts);
+      const D = FLD(P.r);
+      // weld bead where the flange hub meets the pipe, plus a second ring for a clear band
+      highlights[n] = { rings: [ringAt(P, P.flanges[fi] + side * D.hub, P.r * 1.015),
+                                ringAt(P, P.flanges[fi] + side * (D.hub - 0.06 * P.r), P.r * 1.03)], lines: [] };
+    }
+    // 01: the whole top elbow (the bent fitting): its cross rings and the pipe lines through the bend
+    {
+      const P = pipes.find((q) => q.id === "A");
+      if (P && P.path.arcs.length) {
+        const [a0, a1] = P.path.arcs[0], rr = P.r * 1.006, out = { rings: [], lines: [] };
+        const nr = 7;
+        for (let i = 0; i < nr; i++) out.rings.push(ringAt(P, a0 + (a1 - a0) * i / (nr - 1), rr));
+        const nl = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, P.r / 0.9)) / 4) * 4);
+        for (let k = 0; k < nl; k++) {
+          const th = 2 * Math.PI * k / nl + Math.PI / nl, L = [];
+          for (let s = a0; s <= a1 + 1e-6; s += (a1 - a0) / 48) {
+            const F = P.path.frame(s);
+            L.push(add(F.c, add(mul(F.N, rr * Math.cos(th)), mul(F.B, rr * Math.sin(th)))));
+          }
+          out.lines.push(L);
+        }
+        highlights[1] = out;
       }
-      highlights[n] = out;
     }
     return { parts, detail, rings, saddles, highlights };
   }
@@ -530,15 +550,16 @@ window.RivenPipesG = G;
       ring: lineMat({ linewidth: 1, opacity: 1 }, true),
       hidden: lineMat({ linewidth: 1, opacity: 1, dashed: true, dashSize: 0.14, gapSize: 0.1 }, false),
       hl: lineMat({ linewidth: 1, opacity: 0 }, true),
+      hlLine: lineMat({ linewidth: 1, opacity: 0 }, true),
     };
     var fcs = getComputedStyle(frame);
-    M.hl.color = new THREE.Color(LOOK.highlightColor || (fcs.getPropertyValue("--zoom-accent") || fcs.getPropertyValue("--color-blue") || "#1463ff").trim());
+    M.hlLine.color = M.hl.color = new THREE.Color(LOOK.highlightColor || (fcs.getPropertyValue("--zoom-accent") || fcs.getPropertyValue("--color-blue") || "#1463ff").trim());
     function applyLook() {
       var pr = renderer.getPixelRatio();
       M.edge.linewidth = LOOK.outline * pr; M.detail.linewidth = LOOK.detail * pr;
       M.ring.linewidth = LOOK.detail * 0.85 * pr; M.hidden.linewidth = Math.max(0.6, LOOK.detail * 0.9 * pr);
       M.detail.opacity = LOOK.detailOpacity; M.ring.opacity = LOOK.ringOpacity; M.hidden.opacity = LOOK.hidden;
-      M.hl.linewidth = LOOK.highlight * pr;
+      M.hl.linewidth = LOOK.highlight * pr; M.hlLine.linewidth = Math.max(1, LOOK.highlight * 0.5) * pr;
       if (hidObj) hidObj.visible = LOOK.hidden > 0;
     }
     M.hidden.depthFunc = THREE.GreaterDepth;
@@ -563,11 +584,14 @@ window.RivenPipesG = G;
       geo.setAttribute("position", new THREE.Float32BufferAttribute(mesh.pos, 3));
       geo.setIndex(mesh.idx);
       drop(occ); drop(detObj); drop(ringObj);
-      for (var hk in hlObjs) drop(hlObjs[hk]);
+      for (var hk in hlObjs) hlObjs[hk].forEach(drop);
       hlObjs = {};
       Object.keys(model.highlights).forEach(function (n) {
-        hlObjs[n] = segObj(G.polylinesToSegments(model.highlights[n]), M.hl, 4);
-        hlObjs[n].visible = false; scene.add(hlObjs[n]);
+        var h = model.highlights[n], objs = [];
+        if (h.rings.length) objs.push(segObj(G.polylinesToSegments(h.rings), M.hl, 5));
+        if (h.lines.length) objs.push(segObj(G.polylinesToSegments(h.lines), M.hlLine, 4));
+        objs.forEach(function (o) { o.visible = false; scene.add(o); });
+        hlObjs[n] = objs;
       });
       occ = new THREE.Mesh(geo, occMat); occ.renderOrder = 0; scene.add(occ);
       var saddle = G.polylinesToSegments(model.saddles);
@@ -671,8 +695,8 @@ window.RivenPipesG = G;
       var target = 0;
       if (hl.stop && hlObjs[hl.stop]) target = reduce ? 1 : Math.max(0, Math.min(1, (t - hl.since - dur * 0.6) / 300));
       hl.a = target;
-      for (var n in hlObjs) hlObjs[n].visible = +n === hl.stop && hl.a > 0;
-      M.hl.opacity = hl.a;
+      for (var n in hlObjs) hlObjs[n].forEach(function (o) { o.visible = +n === hl.stop && hl.a > 0; });
+      M.hl.opacity = hl.a; M.hlLine.opacity = hl.a;
       return hl.stop && hl.a < 1;
     }
 
