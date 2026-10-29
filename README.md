@@ -45,6 +45,8 @@ Hovering 01/02/03 highlights the matching weld ring on the 3D drawing in the sit
 | `data-pipe-tilt` | 1 | pointer tilt, 0 = off |
 | `data-pipe-color` | | line colour; blank = section text colour |
 | `data-pipe-highlight` | 3 | weld highlight width (px), 0 = off |
+| `data-pipe-glow` | 0.6 | soft glow around highlights, 0 = off |
+| `data-pipe-glow-size` | 1 | glow spread |
 | `data-pipe-highlight-color` | | highlight colour; blank = site blue (`--zoom-accent` / `--color-blue`) |
 | `data-pipe-rest-zoom` | 1 | resting zoom |
 | `data-pipe-rest-x` / `data-pipe-rest-y` | 0.547 / 0.5 | resting focus point (0–1) |

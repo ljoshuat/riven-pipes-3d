@@ -453,14 +453,14 @@ window.RivenPipesG = G;
   // Defaults. Each can be overridden per element with a data attribute on the zoom frame,
   // e.g. data-pipe-lines="20" (set in Bricks: element > Attributes), or tuned live with ?pipes-tune
   var DEFAULTS = { lines: 24, rings: 1.5, bolts: 8, smooth: 96, outline: 1.4, detail: 0.7, detailOpacity: 0.6,
-                   ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "", highlight: 3, highlightColor: "" };
+                   ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "", highlight: 3, highlightColor: "", glow: 0.6, glowSize: 1 };
   var CTRL = [
     ["lines", "Lines around pipe", 0, 48, 4], ["rings", "Ring spacing (0 = off)", 0, 4, 0.25],
     ["bolts", "Bolts per flange", 4, 12, 2], ["smooth", "Surface smoothness", 24, 160, 8],
     ["outline", "Outline weight px", 0.4, 4, 0.1], ["detail", "Detail weight px", 0.2, 2.5, 0.1],
     ["detailOpacity", "Detail brightness", 0.05, 1, 0.05], ["ringOpacity", "Ring brightness", 0, 1, 0.05],
     ["hidden", "Seen-through lines", 0, 0.6, 0.02], ["swing", "Zoom swing", 0, 3, 0.1], ["tilt", "Pointer tilt", 0, 3, 0.1],
-    ["highlight", "Weld highlight px", 0, 8, 0.25]];
+    ["highlight", "Weld highlight px", 0, 8, 0.25], ["glow", "Highlight glow", 0, 1.5, 0.05], ["glowSize", "Glow size", 0.3, 3, 0.1]];
   var REBUILD = { lines: 1, rings: 1, bolts: 1, smooth: 1 };
   // Zoom controls drive the section's existing CSS zoom variables, so the highlight spots stay aligned.
   // [key, label, min, max, step, css variable, unit]
@@ -586,14 +586,23 @@ window.RivenPipesG = G;
       hl: lineMat({ linewidth: 1, opacity: 0 }, true),
       hlLine: lineMat({ linewidth: 1, opacity: 0 }, true),
     };
+    // soft outer glow: wider, faint, additive copies of the highlight lines (rings and thin lines)
+    var GLOW = [[2.6, 0.30], [5, 0.14], [9, 0.06]];
+    M.glowR = GLOW.map(function () { return lineMat({ linewidth: 1, opacity: 0, blending: THREE.AdditiveBlending }, true); });
+    M.glowL = GLOW.map(function () { return lineMat({ linewidth: 1, opacity: 0, blending: THREE.AdditiveBlending }, true); });
     var fcs = getComputedStyle(frame);
     M.hlLine.color = M.hl.color = new THREE.Color(LOOK.highlightColor || (fcs.getPropertyValue("--zoom-accent") || fcs.getPropertyValue("--color-blue") || "#1463ff").trim());
+    M.glowR.concat(M.glowL).forEach(function (m) { m.color = M.hl.color; });
     function applyLook() {
       var pr = renderer.getPixelRatio();
       M.edge.linewidth = LOOK.outline * pr; M.detail.linewidth = LOOK.detail * pr;
       M.ring.linewidth = LOOK.detail * 0.85 * pr; M.hidden.linewidth = Math.max(0.6, LOOK.detail * 0.9 * pr);
       M.detail.opacity = LOOK.detailOpacity; M.ring.opacity = LOOK.ringOpacity; M.hidden.opacity = LOOK.hidden;
       M.hl.linewidth = LOOK.highlight * pr; M.hlLine.linewidth = Math.max(1, LOOK.highlight * 0.5) * pr;
+      GLOW.forEach(function (g, i) {
+        M.glowR[i].linewidth = M.hl.linewidth * (1 + (g[0] - 1) * LOOK.glowSize);
+        M.glowL[i].linewidth = M.hlLine.linewidth * (1 + (g[0] - 1) * LOOK.glowSize);
+      });
       if (hidObj) hidObj.visible = LOOK.hidden > 0;
     }
     M.hidden.depthFunc = THREE.GreaterDepth;
@@ -622,8 +631,14 @@ window.RivenPipesG = G;
       hlObjs = {};
       Object.keys(model.highlights).forEach(function (n) {
         var h = model.highlights[n], objs = [];
-        if (h.rings.length) objs.push(segObj(G.polylinesToSegments(h.rings), M.hl, 5));
-        if (h.lines.length) objs.push(segObj(G.polylinesToSegments(h.lines), M.hlLine, 4));
+        if (h.rings.length) {
+          var ro = segObj(G.polylinesToSegments(h.rings), M.hl, 5); objs.push(ro);
+          M.glowR.forEach(function (gm) { var o = new THREE.LineSegments2(ro.geometry, gm); o.renderOrder = 3; o.frustumCulled = false; objs.push(o); });
+        }
+        if (h.lines.length) {
+          var lo = segObj(G.polylinesToSegments(h.lines), M.hlLine, 4); objs.push(lo);
+          M.glowL.forEach(function (gm) { var o = new THREE.LineSegments2(lo.geometry, gm); o.renderOrder = 3; o.frustumCulled = false; objs.push(o); });
+        }
         objs.forEach(function (o) { o.visible = false; scene.add(o); });
         hlObjs[n] = objs;
       });
@@ -709,7 +724,7 @@ window.RivenPipesG = G;
       size.w = w; size.h = h;
       renderer.setSize(w, h, false);
       var pr = renderer.getPixelRatio(), res = new THREE.Vector2(w * pr, h * pr);
-      for (var k in M) { M[k].resolution.copy(res); }
+      for (var k in M) { [].concat(M[k]).forEach(function (m) { m.resolution.copy(res); }); }
       applyLook();
       wake();
     }
@@ -731,6 +746,7 @@ window.RivenPipesG = G;
       hl.a = target;
       for (var n in hlObjs) hlObjs[n].forEach(function (o) { o.visible = +n === hl.stop && hl.a > 0; });
       M.hl.opacity = hl.a; M.hlLine.opacity = hl.a;
+      GLOW.forEach(function (g, i) { M.glowR[i].opacity = M.glowL[i].opacity = hl.a * g[1] * LOOK.glow; });
       return hl.stop && hl.a < 1;
     }
 
@@ -783,11 +799,16 @@ window.RivenPipesG = G;
   // Live tuning panel: add ?pipes-tune to the page URL. Copies values as Bricks attributes.
   function tunePanel(frame, LOOK, ZOOM, wake, changed) {
     var box = document.createElement("div");
-    box.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:99999;width:260px;max-height:80vh;overflow:auto;" +
+    box.style.cssText = "position:fixed;right:16px;top:16px;bottom:16px;z-index:99999;width:260px;overflow-y:auto;" +
+      "overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;" +
       "background:#111;color:#eee;font:12px/1.4 ui-monospace,Menlo,monospace;padding:12px;border:1px solid #333;border-radius:8px";
+    // keep wheel/touch scrolling inside the panel (smooth-scroll libraries otherwise take it)
+    box.setAttribute("data-lenis-prevent", ""); box.setAttribute("data-scroll-ignore", "");
+    ["wheel", "touchmove"].forEach(function (ev) { box.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true }); });
     var hd = "display:block;margin:10px 0 4px;color:#9fd0e6;text-transform:uppercase;letter-spacing:.08em;font-size:11px";
     var btn = "flex:1;padding:4px 0;background:#222;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer";
-    var html = "<b style='display:block;margin-bottom:4px'>Pipe linework</b><span style='" + hd + "'>Zoom</span>" +
+    var html = "<b style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'>Pipe linework" +
+      "<button type='button' data-min style='" + btn + ";flex:none;padding:2px 8px'>Hide</button></b><div data-body><span style='" + hd + "'>Zoom</span>" +
       "<div style='display:flex;gap:4px;margin-bottom:4px'>Preview:" +
       ["Rest", "01", "02", "03"].map(function (t, i) { return "<button type='button' data-pv='" + i + "' style='" + btn + "'>" + t + "</button>"; }).join("") + "</div>";
     ZCTRL.forEach(function (c) {
@@ -800,7 +821,7 @@ window.RivenPipesG = G;
         "<input data-k='" + c[0] + "' type='range' min='" + c[2] + "' max='" + c[3] + "' step='" + c[4] + "' value='" + LOOK[c[0]] + "' style='width:100%'></label>";
     });
     html += "<button type='button' data-copy style='margin-top:8px;width:100%;padding:6px;background:#9fd0e6;color:#000;border:0;border-radius:4px'>Copy as Bricks attributes</button>" +
-      "<textarea readonly style='margin-top:8px;width:100%;height:110px;background:#000;color:#9fd0e6;border:1px solid #333'></textarea>";
+      "<textarea readonly style='margin-top:8px;width:100%;height:110px;background:#000;color:#9fd0e6;border:1px solid #333'></textarea></div>";
     box.innerHTML = html; document.body.appendChild(box);
     var ta = box.querySelector("textarea");
     function dump() {
@@ -829,6 +850,12 @@ window.RivenPipesG = G;
       wake();
     }
     box.addEventListener("click", function (e) {
+      var mn = e.target.closest("[data-min]");
+      if (mn) {
+        var body = box.querySelector("[data-body]"), hide = body.style.display !== "none";
+        body.style.display = hide ? "none" : ""; mn.textContent = hide ? "Show" : "Hide";
+        box.style.bottom = hide ? "auto" : "16px"; return;
+      }
       var b = e.target.closest("[data-pv]"); if (!b) return;
       preview = +b.getAttribute("data-pv"); showPreview();
     });
