@@ -453,7 +453,16 @@ window.RivenPipesG = G;
   // Defaults. Each can be overridden per element with a data attribute on the zoom frame,
   // e.g. data-pipe-lines="20" (set in Bricks: element > Attributes), or tuned live with ?pipes-tune
   var DEFAULTS = { lines: 24, rings: 1.5, bolts: 8, smooth: 96, outline: 1.4, detail: 0.7, detailOpacity: 0.6,
-                   ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "", highlight: 3, highlightColor: "", glow: 0.6, glowSize: 1 };
+                   ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "", highlight: 3, highlightColor: "", glow: 0.6, glowSize: 1,
+                   // stainless mode (data-pipe-mode="stainless", or preview with ?pipes-stainless)
+                   mode: "lines", metalness: 1, roughness: 0.3, reflections: 1.1, exposure: 1, steel: "#cfd4d9",
+                   xray: 0.12, restLines: 0, xrayHidden: 0.35, xraySpeed: 0.6, xrayOnHover: 1 };
+  var MCTRL = [
+    ["metalness", "Metalness", 0, 1, 0.02], ["roughness", "Roughness (brushed)", 0.02, 1, 0.02],
+    ["reflections", "Reflections", 0, 3, 0.05], ["exposure", "Brightness", 0.3, 2.5, 0.05],
+    ["xray", "X-ray steel opacity", 0, 1, 0.02], ["restLines", "Lines at rest", 0, 1, 0.02],
+    ["xrayHidden", "X-ray hidden lines", 0, 1, 0.02], ["xraySpeed", "X-ray fade s", 0.1, 2, 0.05],
+    ["xrayOnHover", "X-ray on drawing hover (0/1)", 0, 1, 1]];
   var CTRL = [
     ["lines", "Lines around pipe", 0, 48, 4], ["rings", "Ring spacing (0 = off)", 0, 4, 0.25],
     ["bolts", "Bolts per flange", 4, 12, 2], ["smooth", "Surface smoothness", 24, 160, 8],
@@ -508,7 +517,7 @@ window.RivenPipesG = G;
     var L = Object.assign({}, DEFAULTS);
     Object.keys(DEFAULTS).forEach(function (k) {
       var a = el.getAttribute("data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }));
-      if (a !== null && a !== "") L[k] = /color/i.test(k) ? a : parseFloat(a);
+      if (a !== null && a !== "") L[k] = /color|mode|steel/i.test(k) ? a : parseFloat(a);
     });
     return L;
   }
@@ -520,12 +529,15 @@ window.RivenPipesG = G;
       document.head.appendChild(s);
     });
   }
-  function loadDeps() {
-    if (window.THREE && THREE.LineSegments2) return Promise.resolve();
+  function loadDeps(extra) {
+    var list = DEPS.concat(extra || []);
+    if (window.THREE && THREE.LineSegments2 && (!extra || THREE.RoomEnvironment)) return Promise.resolve();
     var p = Promise.resolve();
-    DEPS.forEach(function (d) {
+    list.forEach(function (d) {
       p = p.then(function () {
         if (d.indexOf("three.min") >= 0 && window.THREE) return;
+        if (d.indexOf("RoomEnvironment") >= 0 && window.THREE && THREE.RoomEnvironment) return;
+        if (d.indexOf("/lines/") >= 0 && window.THREE && THREE.LineSegments2) return;
         return loadScript(CDN + d);
       });
     });
@@ -538,6 +550,8 @@ window.RivenPipesG = G;
     if (!stage || frame.dataset.pipes3d) return;
     frame.dataset.pipes3d = "loading";
     var LOOK = readLook(frame);
+    var q = location.search;
+    var STEEL = /[?&]pipes-stainless\b/.test(q) || (LOOK.mode === "stainless" && !/[?&]pipes-lines\b/.test(q));
     var ZOOM = readZoom(frame); applyZoom(ZOOM);
     var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     var fine = matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -554,9 +568,26 @@ window.RivenPipesG = G;
     } catch (e) { canvas.remove(); frame.dataset.pipes3d = "failed"; return; }
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    if (STEEL) {
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = LOOK.exposure;
+    }
 
     var col = new THREE.Color(LOOK.color || getComputedStyle(frame).color || "#fff");
     var scene = new THREE.Scene();
+    var steelMat = null, steelObj = null;
+    if (STEEL) {
+      var pm = new THREE.PMREMGenerator(renderer);
+      scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+      pm.dispose();
+      var key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(-6, 14, 12); scene.add(key);
+      scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x0a0c0e, 0.35));
+      steelMat = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(LOOK.steel), metalness: LOOK.metalness, roughness: LOOK.roughness,
+        envMapIntensity: LOOK.reflections, clearcoat: 0.35, clearcoatRoughness: 0.18,
+        transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
+    }
     var P = G.PHOTO;
     var camera = new THREE.PerspectiveCamera(P.fov, 3164 / 1988, 0.1, 400);
     var baseEye = new THREE.Vector3().fromArray(P.eye), baseTgt = new THREE.Vector3().fromArray(P.target);
@@ -593,6 +624,13 @@ window.RivenPipesG = G;
     var fcs = getComputedStyle(frame);
     M.hlLine.color = M.hl.color = new THREE.Color(LOOK.highlightColor || (fcs.getPropertyValue("--zoom-accent") || fcs.getPropertyValue("--color-blue") || "#1463ff").trim());
     M.glowR.concat(M.glowL).forEach(function (m) { m.color = M.hl.color; });
+    if (STEEL) {
+      // the steel pass renders in linear space with tone mapping; keep the linework colours exact
+      steelMat.color.convertSRGBToLinear();
+      [M.edge, M.detail, M.ring, M.hidden, M.hl, M.hlLine].concat(M.glowR, M.glowL).forEach(function (m) {
+        m.color = m.color.clone().convertSRGBToLinear(); m.toneMapped = false;
+      });
+    }
     function applyLook() {
       var pr = renderer.getPixelRatio();
       M.edge.linewidth = LOOK.outline * pr; M.detail.linewidth = LOOK.detail * pr;
@@ -603,7 +641,20 @@ window.RivenPipesG = G;
         M.glowR[i].linewidth = M.hl.linewidth * (1 + (g[0] - 1) * LOOK.glowSize);
         M.glowL[i].linewidth = M.hlLine.linewidth * (1 + (g[0] - 1) * LOOK.glowSize);
       });
-      if (hidObj) hidObj.visible = LOOK.hidden > 0;
+      if (steelMat) {
+        steelMat.metalness = LOOK.metalness; steelMat.roughness = LOOK.roughness;
+        steelMat.envMapIntensity = LOOK.reflections; renderer.toneMappingExposure = LOOK.exposure;
+      }
+      applyXray();
+    }
+    // x-ray: 0 = solid stainless (rest), 1 = steel ghosted with the linework showing through
+    var xa = 0;
+    function applyXray() {
+      var m = STEEL ? LOOK.restLines + (1 - LOOK.restLines) * xa : 1;
+      M.edge.opacity = m; M.detail.opacity = LOOK.detailOpacity * m; M.ring.opacity = LOOK.ringOpacity * m;
+      M.hidden.opacity = STEEL ? LOOK.xrayHidden * xa : LOOK.hidden;
+      if (hidObj) hidObj.visible = M.hidden.opacity > 0.001;
+      if (steelMat) { steelMat.opacity = 1 - (1 - LOOK.xray) * xa; steelMat.depthWrite = steelMat.opacity > 0.02; }
     }
     M.hidden.depthFunc = THREE.GreaterDepth;
 
@@ -643,6 +694,11 @@ window.RivenPipesG = G;
         hlObjs[n] = objs;
       });
       occ = new THREE.Mesh(geo, occMat); occ.renderOrder = 0; scene.add(occ);
+      if (STEEL) {
+        if (steelObj) { scene.remove(steelObj); steelObj.geometry.dispose(); }
+        steelObj = new THREE.Mesh(shadedGeometry(model.parts), steelMat);
+        steelObj.renderOrder = 0.5; steelObj.frustumCulled = false; scene.add(steelObj);
+      }
       var saddle = G.polylinesToSegments(model.saddles);
       feature = G.featureSegments(model.parts).concat(saddle);
       featureBig = G.featureSegments(model.parts, function (p) { return p.kind !== "bolt"; }).concat(saddle);
@@ -651,6 +707,31 @@ window.RivenPipesG = G;
       scene.add(detObj, ringObj);
       sil = G.prepSil(model.parts);
       lastEye = null;
+    }
+    // smooth around each pipe, crisp at flange steps and nut flats (crease angle 35 degrees)
+    function shadedGeometry(parts) {
+      var pos = [], nor = [], cosA = Math.cos(35 * Math.PI / 180);
+      parts.forEach(function (p) {
+        var adj = p.pos.map(function () { return []; });
+        p.faces.forEach(function (f, fi) { f.v.forEach(function (v) { adj[v].push(fi); }); });
+        p.faces.forEach(function (f) {
+          var corner = function (v) {
+            var n = [0, 0, 0];
+            adj[v].forEach(function (fj) {
+              var m = p.faces[fj].n;
+              if (m[0] * f.n[0] + m[1] * f.n[1] + m[2] * f.n[2] > cosA) { n[0] += m[0]; n[1] += m[1]; n[2] += m[2]; }
+            });
+            var l = Math.hypot(n[0], n[1], n[2]) || 1;
+            pos.push(p.pos[v][0], p.pos[v][1], p.pos[v][2]); nor.push(n[0] / l, n[1] / l, n[2] / l);
+          };
+          var v = f.v, tris = v.length === 4 ? [[0, 1, 2], [0, 2, 3]] : [[0, 1, 2]];
+          tris.forEach(function (t) { corner(v[t[0]]); corner(v[t[1]]); corner(v[t[2]]); });
+        });
+      });
+      var g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+      return g;
     }
     build();
     function updateEdges() {
@@ -758,6 +839,13 @@ window.RivenPipesG = G;
       var X = stageXform();
       var moving = placeCamera(X, dt);
       if (updateHighlight(t)) moving = true;
+      if (STEEL) {
+        var want = (hl.stop || (LOOK.xrayOnHover && ptr.on) || frame.hasAttribute("data-pipes3d-xray")) ? 1 : 0;
+        var step = dt / Math.max(0.05, LOOK.xraySpeed);
+        var nx = want > xa ? Math.min(want, xa + step) : Math.max(want, xa - step);
+        if (reduce) nx = want;
+        if (nx !== xa) { xa = nx; applyXray(); moving = true; }
+      }
       var key = X.s.toFixed(4) + "," + X.tx.toFixed(2) + "," + X.ty.toFixed(2);
       var cssMoving = key !== lastKey; lastKey = key;
       updateEdges();
@@ -782,7 +870,7 @@ window.RivenPipesG = G;
 
     applyLook();
     frameLoop(performance.now());
-    if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, function (k) {
+    if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, STEEL, function (k) {
       if (REBUILD[k]) { clearTimeout(tunePanel.t); tunePanel.t = setTimeout(function () { build(); wake(); }, 150); }
       applyLook(); lastEye = null; wake();
     });
@@ -797,7 +885,7 @@ window.RivenPipesG = G;
   }
 
   // Live tuning panel: add ?pipes-tune to the page URL. Copies values as Bricks attributes.
-  function tunePanel(frame, LOOK, ZOOM, wake, changed) {
+  function tunePanel(frame, LOOK, ZOOM, wake, STEEL, changed) {
     var box = document.createElement("div");
     box.style.cssText = "position:fixed;right:16px;top:16px;bottom:16px;z-index:99999;width:260px;overflow-y:auto;" +
       "overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;" +
@@ -815,6 +903,14 @@ window.RivenPipesG = G;
       html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-zo='" + c[0] + "' style='float:right'>" + ZOOM[c[0]] + "</span>" +
         "<input data-z='" + c[0] + "' type='range' min='" + c[2] + "' max='" + c[3] + "' step='" + c[4] + "' value='" + ZOOM[c[0]] + "' style='width:100%'></label>";
     });
+    if (STEEL) {
+      html += "<span style='" + hd + "'>Stainless + x-ray</span>";
+      MCTRL.forEach(function (c) {
+        html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-o='" + c[0] + "' style='float:right'>" + LOOK[c[0]] + "</span>" +
+          "<input data-k='" + c[0] + "' type='range' min='" + c[2] + "' max='" + c[3] + "' step='" + c[4] + "' value='" + LOOK[c[0]] + "' style='width:100%'></label>";
+      });
+      html += "<label style='display:flex;justify-content:space-between;margin:6px 0'>Hold x-ray on <input data-hold type='checkbox'></label>";
+    }
     html += "<span style='" + hd + "'>Lines</span>";
     CTRL.forEach(function (c) {
       html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-o='" + c[0] + "' style='float:right'>" + LOOK[c[0]] + "</span>" +
@@ -826,7 +922,7 @@ window.RivenPipesG = G;
     var ta = box.querySelector("textarea");
     function dump() {
       var z = ZCTRL.filter(function (c) { return ZOOM.set[c[0]] && ZOOM[c[0]] !== ZOOM_DEFAULTS[c[0]]; }).map(function (c) { return attrName(c[0]) + " = " + ZOOM[c[0]]; });
-      var l = Object.keys(DEFAULTS).filter(function (k) { return k !== "color" && LOOK[k] !== DEFAULTS[k]; }).map(function (k) {
+      var l = Object.keys(DEFAULTS).filter(function (k) { return !/^(color|mode|steel|highlightColor)$/.test(k) && LOOK[k] !== DEFAULTS[k]; }).map(function (k) {
         return attrName(k) + " = " + LOOK[k];
       });
       ta.value = z.concat(l).join("\n") || "(all defaults)";
@@ -849,6 +945,11 @@ window.RivenPipesG = G;
       });
       wake();
     }
+    box.addEventListener("change", function (e) {
+      if (!e.target.hasAttribute("data-hold")) return;
+      if (e.target.checked) frame.setAttribute("data-pipes3d-xray", ""); else frame.removeAttribute("data-pipes3d-xray");
+      wake();
+    });
     box.addEventListener("click", function (e) {
       var mn = e.target.closest("[data-min]");
       if (mn) {
@@ -885,7 +986,9 @@ window.RivenPipesG = G;
     if (!frames.length) return;
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
     var go = function () {
-      loadDeps().then(function () {
+      var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
+        Array.prototype.some.call(frames, function (f) { return f.getAttribute("data-pipe-mode") === "stainless"; });
+      loadDeps(needSteel ? ["examples/js/environments/RoomEnvironment.js"] : null).then(function () {
         if (!THREE.LineSegments2) return;
         frames.forEach(function (f) { try { mount(f); } catch (e) { console.warn("pipes3d", e); } });
       }).catch(function (e) { console.warn("pipes3d", e); });

@@ -66,3 +66,23 @@ with no edit in Bricks. Visitors' browsers may keep the previous copy for up to 
 
 To freeze a known-good version instead, point the Bricks line at a commit ID or tag
 (`@<commit>` / `@v1.2.0`).
+
+## Stainless + x-ray mode
+
+At rest the pipe renders as polished stainless steel; hovering a stop (or the drawing) fades the steel to a ghost and the linework shows through like an x-ray.
+
+- Preview just for you: add `?pipes-stainless` to the page URL (add `&pipes-tune` for the controls).
+- Make it live for everyone: add `data-pipe-mode = stainless` to the Div with the other attributes. `?pipes-lines` forces the plain line version.
+
+| Attribute | Default | What it does |
+|---|---|---|
+| data-pipe-metalness | 1 | How metallic the steel reads |
+| data-pipe-roughness | 0.3 | Low = mirror polish, high = brushed |
+| data-pipe-reflections | 1.1 | Strength of the studio reflections |
+| data-pipe-exposure | 1 | Overall brightness |
+| data-pipe-steel | #cfd4d9 | Steel tint |
+| data-pipe-xray | 0.12 | Steel opacity while x-raying |
+| data-pipe-rest-lines | 0 | Linework visible over the steel at rest |
+| data-pipe-xray-hidden | 0.35 | Dashed hidden lines while x-raying |
+| data-pipe-xray-speed | 0.6 | Fade time in seconds |
+| data-pipe-xray-on-hover | 1 | 1 = x-ray when hovering the drawing itself, 0 = only the 01/02/03 stops |
