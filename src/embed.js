@@ -7,6 +7,10 @@
 (function () {
   "use strict";
   var CDN = "https://cdn.jsdelivr.net/npm/three@0.147.0/";
+  // reflection maps (Poly Haven CC0 HDRIs) ship in this repo's env/ folder, next to this script
+  var ME = document.currentScript && document.currentScript.src || "";
+  var ASSETS = /\/riven-pipes-3d(\.min)?\.js/.test(ME) ? ME.replace(/[^\/]*$/, "") : "https://cdn.jsdelivr.net/gh/ljoshuat/riven-pipes-3d@main/";
+  var ENVS = ["warehouse", "studio", "hall", "city"];
   var DEPS = ["build/three.min.js", "examples/js/lines/LineSegmentsGeometry.js",
               "examples/js/lines/LineMaterial.js", "examples/js/lines/LineSegments2.js"];
   // Defaults. Each can be overridden per element with a data attribute on the zoom frame,
@@ -14,10 +18,14 @@
   var DEFAULTS = { lines: 24, rings: 1.5, bolts: 8, smooth: 96, outline: 1.4, detail: 0.7, detailOpacity: 0.6,
                    ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "", highlight: 3, highlightColor: "", glow: 0.6, glowSize: 1,
                    // stainless mode (data-pipe-mode="stainless", or preview with ?pipes-stainless)
-                   mode: "lines", metalness: 1, roughness: 0.3, reflections: 1.1, exposure: 1, steel: "#cfd4d9",
-                   xray: 0.12, restLines: 0, xrayHidden: 0.35, xraySpeed: 0.6, xrayOnHover: 1 };
+                   mode: "lines", metalness: 1, roughness: 0.2, reflections: 1, exposure: 1, steel: "#cfd4d9",
+                   xray: 0.12, restLines: 0, xrayHidden: 0.35, xraySpeed: 0.6, xrayOnHover: 1,
+                   envScene: 0, envRotate: 0, envBlur: 0, keyLight: 0.4 };
   var MCTRL = [
-    ["metalness", "Metalness", 0, 1, 0.02], ["roughness", "Roughness (brushed)", 0.02, 1, 0.02],
+    ["envScene", "Reflections: 0 warehouse, 1 studio, 2 hall, 3 city", 0, 3, 1],
+    ["envRotate", "Turn the room (deg)", 0, 360, 5], ["envBlur", "Reflection blur", 0, 0.3, 0.01],
+    ["keyLight", "Key light", 0, 3, 0.05],
+    ["metalness", "Metalness", 0, 1, 0.02], ["roughness", "Roughness (0 = chrome, up = brushed)", 0, 1, 0.01],
     ["reflections", "Reflections", 0, 3, 0.05], ["exposure", "Brightness", 0.3, 2.5, 0.05],
     ["xray", "X-ray steel opacity", 0, 1, 0.02], ["restLines", "Lines at rest", 0, 1, 0.02],
     ["xrayHidden", "X-ray hidden lines", 0, 1, 0.02], ["xraySpeed", "X-ray fade s", 0.1, 2, 0.05],
@@ -90,12 +98,13 @@
   }
   function loadDeps(extra) {
     var list = DEPS.concat(extra || []);
-    if (window.THREE && THREE.LineSegments2 && (!extra || THREE.RoomEnvironment)) return Promise.resolve();
+    if (window.THREE && THREE.LineSegments2 && (!extra || (THREE.RoomEnvironment && THREE.RGBELoader))) return Promise.resolve();
     var p = Promise.resolve();
     list.forEach(function (d) {
       p = p.then(function () {
         if (d.indexOf("three.min") >= 0 && window.THREE) return;
         if (d.indexOf("RoomEnvironment") >= 0 && window.THREE && THREE.RoomEnvironment) return;
+        if (d.indexOf("RGBELoader") >= 0 && window.THREE && THREE.RGBELoader) return;
         if (d.indexOf("/lines/") >= 0 && window.THREE && THREE.LineSegments2) return;
         return loadScript(CDN + d);
       });
@@ -139,12 +148,35 @@
     if (STEEL) {
       var pm = new THREE.PMREMGenerator(renderer);
       scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
-      pm.dispose();
-      var key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(-6, 14, 12); scene.add(key);
+      var keyL = new THREE.DirectionalLight(0xffffff, LOOK.keyLight); keyL.position.set(-6, 14, 12); scene.add(keyL);
+      // real reflections: an HDR photo of a warehouse (or studio/hall/city) wrapped round the pipe.
+      // It goes on an inside-out sphere so it can be turned, then gets pre-blurred for the steel.
+      var hdrCache = {}, envKey = "", envSphere = null;
+      var setEnv = function () {
+        var name = ENVS[Math.round(LOOK.envScene)] || ENVS[0];
+        var k = name + "|" + LOOK.envRotate + "|" + LOOK.envBlur;
+        if (k === envKey) return; envKey = k;
+        (hdrCache[name] = hdrCache[name] || new Promise(function (res, rej) {
+          new THREE.RGBELoader().setDataType(THREE.HalfFloatType).load(ASSETS + "env/" + name + ".hdr", res, undefined, rej);
+        })).then(function (tex) {
+          if (k !== envKey) return;
+          if (!envSphere) {
+            envSphere = new THREE.Mesh(new THREE.SphereGeometry(50, 64, 32),
+              new THREE.MeshBasicMaterial({ side: THREE.BackSide, toneMapped: false }));
+          }
+          envSphere.material.map = tex; envSphere.material.needsUpdate = true;
+          envSphere.rotation.y = LOOK.envRotate * Math.PI / 180;
+          var es = new THREE.Scene(); es.add(envSphere);
+          var old = scene.environment;
+          scene.environment = pm.fromScene(es, LOOK.envBlur, 0.1, 100).texture;
+          if (old) old.dispose();
+          es.remove(envSphere); wake();
+        }).catch(function (e) { console.warn("pipes3d env", e); });
+      };
       scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x0a0c0e, 0.35));
       steelMat = new THREE.MeshPhysicalMaterial({
         color: new THREE.Color(LOOK.steel), metalness: LOOK.metalness, roughness: LOOK.roughness,
-        envMapIntensity: LOOK.reflections, clearcoat: 0.35, clearcoatRoughness: 0.18,
+        envMapIntensity: LOOK.reflections, clearcoat: 1, clearcoatRoughness: 0.02,
         transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
     }
     var P = G.PHOTO;
@@ -203,6 +235,7 @@
       if (steelMat) {
         steelMat.metalness = LOOK.metalness; steelMat.roughness = LOOK.roughness;
         steelMat.envMapIntensity = LOOK.reflections; renderer.toneMappingExposure = LOOK.exposure;
+        keyL.intensity = LOOK.keyLight; setEnv();
       }
       applyXray();
     }
@@ -547,7 +580,7 @@
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
         Array.prototype.some.call(frames, function (f) { return f.getAttribute("data-pipe-mode") === "stainless"; });
-      loadDeps(needSteel ? ["examples/js/environments/RoomEnvironment.js"] : null).then(function () {
+      loadDeps(needSteel ? ["examples/js/environments/RoomEnvironment.js", "examples/js/loaders/RGBELoader.js"] : null).then(function () {
         if (!THREE.LineSegments2) return;
         frames.forEach(function (f) { try { mount(f); } catch (e) { console.warn("pipes3d", e); } });
       }).catch(function (e) { console.warn("pipes3d", e); });
