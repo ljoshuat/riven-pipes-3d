@@ -71,12 +71,17 @@ const G = (() => {
       const n = Math.max(1, Math.ceil(Math.abs(s1 - s0) / (curved ? 0.06 : (r0 === r1 ? 2.0 : 0.12))));
       for (let i = 1; i <= n; i++) { const f = i / n; rings.push([s0 + (s1 - s0) * f, r0 + (r1 - r0) * f]); }
     }
-    const pos = [], frames = [];
-    for (const [s, r] of rings) {
+    const pos = [], frames = [], grain = [];
+    let L = 0;
+    for (let i = 0; i < rings.length; i++) {
+      const [s, r] = rings[i];
+      if (i) L += Math.hypot(s - rings[i - 1][0], r - rings[i - 1][1]);
       const F = frameAt(s); frames.push(F);
       for (let j = 0; j < M; j++) {
         const th = phase + 2 * Math.PI * j / M;
         pos.push(add(F.c, add(mul(F.N, r * Math.cos(th)), mul(F.B, r * Math.sin(th)))));
+        // finish coordinates: distance along the profile, and distance around the pipe
+        grain.push([L, (j / M) * 2 * Math.PI * r, 2 * Math.PI * r]);
       }
     }
     const nR = rings.length, faces = [];
@@ -92,11 +97,11 @@ const G = (() => {
         faces.push({ v: [i * M + j, (i + 1) * M + j, (i + 1) * M + j1, i * M + j1], n });
       }
     }
-    if (cap0) { const ci = pos.length; pos.push(frames[0].c); for (let j = 0; j < M; j++) faces.push({ v: [ci, (j + 1) % M, j], n: mul(frames[0].T, -1) }); }
-    if (cap1) { const ci = pos.length; const b = (nR - 1) * M; pos.push(frames[nR - 1].c); for (let j = 0; j < M; j++) faces.push({ v: [ci, b + j, b + (j + 1) % M], n: frames[nR - 1].T }); }
+    if (cap0) { const ci = pos.length; pos.push(frames[0].c); grain.push([0, 0]); for (let j = 0; j < M; j++) faces.push({ v: [ci, (j + 1) % M, j], n: mul(frames[0].T, -1) }); }
+    if (cap1) { const ci = pos.length; const b = (nR - 1) * M; pos.push(frames[nR - 1].c); grain.push([L, 0]); for (let j = 0; j < M; j++) faces.push({ v: [ci, b + j, b + (j + 1) % M], n: frames[nR - 1].T }); }
     const vn = pos.map(() => [0, 0, 0]);
     for (const f of faces) for (const i of f.v) vn[i] = add(vn[i], f.n);
-    return { pos, faces, vn: vn.map(norm) };
+    return { pos, faces, vn: vn.map(norm), grain, M };
   }
 
   function buildEdges(part) {
@@ -459,13 +464,17 @@ window.RivenPipesG = G;
   var DEFAULTS = { lines: 24, rings: 1.5, bolts: 8, smooth: 96, outline: 1.4, detail: 0.7, detailOpacity: 0.6,
                    ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "", highlight: 3, highlightColor: "", glow: 0.6, glowSize: 1,
                    // stainless mode (data-pipe-mode="stainless", or preview with ?pipes-stainless)
-                   mode: "lines", metalness: 1, roughness: 0.2, reflections: 1, exposure: 1, steel: "#cfd4d9",
+                   mode: "lines", metalness: 1, roughness: 0.32, reflections: 1, exposure: 1.35, steel: "#dfe2e4",
                    xray: 0.12, restLines: 0, xrayHidden: 0.35, xraySpeed: 0.6, xrayOnHover: 1,
-                   envScene: 0, envRotate: 0, envBlur: 0, keyLight: 0.4 };
+                   envScene: 0, envRotate: 55, envBlur: 0.04, keyLight: 0.4,
+                   // surface finish (like the reference photos): brushed grain along the pipes, turned rings on flanges
+                   grain: 0.5, grainSize: 1, grainWarmth: 0, flangeTurn: 0.5, envSat: 0.3, coat: 0.3 };
   var MCTRL = [
     ["envScene", "Reflections: 0 warehouse, 1 studio, 2 hall, 3 city", 0, 3, 1],
     ["envRotate", "Turn the room (deg)", 0, 360, 5], ["envBlur", "Reflection blur", 0, 0.3, 0.01],
-    ["keyLight", "Key light", 0, 3, 0.05],
+    ["keyLight", "Key light", 0, 3, 0.05], ["envSat", "Reflection colour (0 = neutral grey)", 0, 1, 0.02], ["coat", "Gloss coat", 0, 1, 0.02],
+    ["grain", "Brushed grain (pipes)", 0, 1, 0.01], ["flangeTurn", "Turned rings (flanges)", 0, 1, 0.01],
+    ["grainSize", "Grain coarseness", 0.3, 4, 0.05], ["grainWarmth", "Warm satin tint", 0, 1, 0.01],
     ["metalness", "Metalness", 0, 1, 0.02], ["roughness", "Roughness (0 = chrome, up = brushed)", 0, 1, 0.01],
     ["reflections", "Reflections", 0, 3, 0.05], ["exposure", "Brightness", 0.3, 2.5, 0.05],
     ["xray", "X-ray steel opacity", 0, 1, 0.02], ["restLines", "Lines at rest", 0, 1, 0.02],
@@ -592,10 +601,10 @@ window.RivenPipesG = G;
       var keyL = new THREE.DirectionalLight(0xffffff, LOOK.keyLight); keyL.position.set(-6, 14, 12); scene.add(keyL);
       // real reflections: an HDR photo of a warehouse (or studio/hall/city) wrapped round the pipe.
       // It goes on an inside-out sphere so it can be turned, then gets pre-blurred for the steel.
-      var hdrCache = {}, envKey = "", envSphere = null;
+      var hdrCache = {}, envKey = "", envSphere = null, envSat = { value: 1 };
       var setEnv = function () {
         var name = ENVS[Math.round(LOOK.envScene)] || ENVS[0];
-        var k = name + "|" + LOOK.envRotate + "|" + LOOK.envBlur;
+        var k = name + "|" + LOOK.envRotate + "|" + LOOK.envBlur + "|" + LOOK.envSat;
         if (k === envKey) return; envKey = k;
         (hdrCache[name] = hdrCache[name] || new Promise(function (res, rej) {
           new THREE.RGBELoader().setDataType(THREE.HalfFloatType).load(ASSETS + "env/" + name + ".hdr", res, undefined, rej);
@@ -604,7 +613,13 @@ window.RivenPipesG = G;
           if (!envSphere) {
             envSphere = new THREE.Mesh(new THREE.SphereGeometry(50, 64, 32),
               new THREE.MeshBasicMaterial({ side: THREE.BackSide, toneMapped: false }));
+            envSphere.material.onBeforeCompile = function (sh) {
+              sh.uniforms.uSat = envSat;
+              sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uSat;")
+                .replace("#include <map_fragment>", "#include <map_fragment>\ndiffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722))), diffuseColor.rgb, uSat);");
+            };
           }
+          envSat.value = LOOK.envSat;
           envSphere.material.map = tex; envSphere.material.needsUpdate = true;
           envSphere.rotation.y = LOOK.envRotate * Math.PI / 180;
           var es = new THREE.Scene(); es.add(envSphere);
@@ -617,8 +632,35 @@ window.RivenPipesG = G;
       scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x0a0c0e, 0.35));
       steelMat = new THREE.MeshPhysicalMaterial({
         color: new THREE.Color(LOOK.steel), metalness: LOOK.metalness, roughness: LOOK.roughness,
-        envMapIntensity: LOOK.reflections, clearcoat: 1, clearcoatRoughness: 0.02,
+        envMapIntensity: LOOK.reflections, clearcoat: LOOK.coat, clearcoatRoughness: 0.08,
         transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
+      // brushed / lathe-turned finish: fine streaks that tilt the reflection across the grain,
+      // so highlights smear along it like real satin stainless
+      var GU = { uGrain: { value: 0 }, uTurn: { value: 0 }, uSize: { value: 1 }, uWarm: { value: 0 } };
+      steelMat.onBeforeCompile = function (sh) {
+        Object.assign(sh.uniforms, GU);
+        sh.vertexShader = sh.vertexShader
+          .replace("#include <common>", "#include <common>\nattribute vec3 aGrain;\nattribute vec3 aAcross;\nvarying vec3 vGrain;\nvarying vec3 vAcross;")
+          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvGrain = aGrain;\nvAcross = normalize(normalMatrix * aAcross);");
+        sh.fragmentShader = sh.fragmentShader
+          .replace("#include <common>", "#include <common>\nuniform float uGrain, uTurn, uSize, uWarm;\nvarying vec3 vGrain;\nvarying vec3 vAcross;\n" +
+            "float gh(float x){ return fract(sin(x * 127.1) * 43758.5453) * 2.0 - 1.0; }\n" +
+            "float gn(float x){ float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(gh(i), gh(i + 1.0), f); }\n" +
+            // three octaves of streaks, each fading out once it gets finer than a pixel (no shimmer)
+            "float grainAt(float x){ float s = 0.0, a = 0.55, fq = 1.0;\n" +
+            "  for (int o = 0; o < 4; o++) { float w = fwidth(x * fq); s += a * gn(x * fq) * clamp(1.6 - w * 1.4, 0.0, 1.0); fq *= 3.7; a *= 0.62; }\n" +
+            "  return s; }")
+          .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n" +
+            "float gAmt = vGrain.z < 0.5 ? uGrain : (vGrain.z < 1.5 ? uTurn : 0.0);\n" +
+            "float gx = (vGrain.z < 0.5 ? vGrain.y : vGrain.x) * 90.0 / uSize;\n" +
+            "float gv = gAmt > 0.0 ? grainAt(gx) : 0.0;\n" +
+            "float gLow = gAmt > 0.0 ? gn(gx * 0.045 + 3.1) : 0.0;\n" +
+            "roughnessFactor = clamp(roughnessFactor * (1.0 + gAmt * (0.35 * gv + 0.25 * gLow)), 0.02, 1.0);")
+          .replace("#include <normal_fragment_maps>", "#include <normal_fragment_maps>\n" +
+            "normal = normalize(normal + vAcross * (gv * 0.16 + gLow * 0.05) * gAmt * (gl_FrontFacing ? 1.0 : -1.0));")
+          .replace("#include <color_fragment>", "#include <color_fragment>\n" +
+            "diffuseColor.rgb *= mix(vec3(1.0), vec3(1.0, 0.975, 0.94), uWarm);");
+      };
     }
     var P = G.PHOTO;
     var camera = new THREE.PerspectiveCamera(P.fov, 3164 / 1988, 0.1, 400);
@@ -677,6 +719,8 @@ window.RivenPipesG = G;
         steelMat.metalness = LOOK.metalness; steelMat.roughness = LOOK.roughness;
         steelMat.envMapIntensity = LOOK.reflections; renderer.toneMappingExposure = LOOK.exposure;
         keyL.intensity = LOOK.keyLight; setEnv();
+        GU.uGrain.value = LOOK.grain; GU.uTurn.value = LOOK.flangeTurn;
+        GU.uSize.value = LOOK.grainSize; GU.uWarm.value = LOOK.grainWarmth; steelMat.clearcoat = LOOK.coat;
       }
       applyXray();
     }
@@ -743,11 +787,18 @@ window.RivenPipesG = G;
     }
     // smooth around each pipe, crisp at flange steps and nut flats (crease angle 35 degrees)
     function shadedGeometry(parts) {
-      var pos = [], nor = [], cosA = Math.cos(35 * Math.PI / 180);
+      var pos = [], nor = [], gr = [], ac = [], cosA = Math.cos(35 * Math.PI / 180);
+      var sub = function (a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; };
+      var unit = function (a) { var l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
       parts.forEach(function (p) {
         var adj = p.pos.map(function () { return []; });
         p.faces.forEach(function (f, fi) { f.v.forEach(function (v) { adj[v].push(fi); }); });
+        var kind = p.kind === "pipe" ? 0 : p.kind === "flange" ? 1 : 2;
         p.faces.forEach(function (f) {
+          // across-grain direction for this face: around the pipe for brushed pipe,
+          // along the profile (radial on faces) for turned flanges
+          var across = [0, 0, 0];
+          if (f.v.length === 4) across = unit(kind === 0 ? sub(p.pos[f.v[3]], p.pos[f.v[0]]) : sub(p.pos[f.v[1]], p.pos[f.v[0]]));
           var corner = function (v) {
             var n = [0, 0, 0];
             adj[v].forEach(function (fj) {
@@ -756,6 +807,11 @@ window.RivenPipesG = G;
             });
             var l = Math.hypot(n[0], n[1], n[2]) || 1;
             pos.push(p.pos[v][0], p.pos[v][1], p.pos[v][2]); nor.push(n[0] / l, n[1] / l, n[2] / l);
+            var g = p.grain && p.grain[v] || [0, 0];
+            // around-the-pipe coordinate wraps at the seam; use the face's own copy so it stays continuous
+            var gy = g[1];
+            if (p.grain && f.v.length === 4 && gy < p.grain[f.v[0]][1] - 1e-6) gy += g[2] || 0;
+            gr.push(g[0], gy, f.v.length === 4 ? kind : 2); ac.push(across[0], across[1], across[2]);
           };
           var v = f.v, tris = v.length === 4 ? [[0, 1, 2], [0, 2, 3]] : [[0, 1, 2]];
           tris.forEach(function (t) { corner(v[t[0]]); corner(v[t[1]]); corner(v[t[2]]); });
@@ -764,6 +820,8 @@ window.RivenPipesG = G;
       var g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+      g.setAttribute("aGrain", new THREE.Float32BufferAttribute(gr, 3));
+      g.setAttribute("aAcross", new THREE.Float32BufferAttribute(ac, 3));
       return g;
     }
     build();

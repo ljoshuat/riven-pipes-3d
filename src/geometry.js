@@ -69,12 +69,17 @@ const G = (() => {
       const n = Math.max(1, Math.ceil(Math.abs(s1 - s0) / (curved ? 0.06 : (r0 === r1 ? 2.0 : 0.12))));
       for (let i = 1; i <= n; i++) { const f = i / n; rings.push([s0 + (s1 - s0) * f, r0 + (r1 - r0) * f]); }
     }
-    const pos = [], frames = [];
-    for (const [s, r] of rings) {
+    const pos = [], frames = [], grain = [];
+    let L = 0;
+    for (let i = 0; i < rings.length; i++) {
+      const [s, r] = rings[i];
+      if (i) L += Math.hypot(s - rings[i - 1][0], r - rings[i - 1][1]);
       const F = frameAt(s); frames.push(F);
       for (let j = 0; j < M; j++) {
         const th = phase + 2 * Math.PI * j / M;
         pos.push(add(F.c, add(mul(F.N, r * Math.cos(th)), mul(F.B, r * Math.sin(th)))));
+        // finish coordinates: distance along the profile, and distance around the pipe
+        grain.push([L, (j / M) * 2 * Math.PI * r, 2 * Math.PI * r]);
       }
     }
     const nR = rings.length, faces = [];
@@ -90,11 +95,11 @@ const G = (() => {
         faces.push({ v: [i * M + j, (i + 1) * M + j, (i + 1) * M + j1, i * M + j1], n });
       }
     }
-    if (cap0) { const ci = pos.length; pos.push(frames[0].c); for (let j = 0; j < M; j++) faces.push({ v: [ci, (j + 1) % M, j], n: mul(frames[0].T, -1) }); }
-    if (cap1) { const ci = pos.length; const b = (nR - 1) * M; pos.push(frames[nR - 1].c); for (let j = 0; j < M; j++) faces.push({ v: [ci, b + j, b + (j + 1) % M], n: frames[nR - 1].T }); }
+    if (cap0) { const ci = pos.length; pos.push(frames[0].c); grain.push([0, 0]); for (let j = 0; j < M; j++) faces.push({ v: [ci, (j + 1) % M, j], n: mul(frames[0].T, -1) }); }
+    if (cap1) { const ci = pos.length; const b = (nR - 1) * M; pos.push(frames[nR - 1].c); grain.push([L, 0]); for (let j = 0; j < M; j++) faces.push({ v: [ci, b + j, b + (j + 1) % M], n: frames[nR - 1].T }); }
     const vn = pos.map(() => [0, 0, 0]);
     for (const f of faces) for (const i of f.v) vn[i] = add(vn[i], f.n);
-    return { pos, faces, vn: vn.map(norm) };
+    return { pos, faces, vn: vn.map(norm), grain, M };
   }
 
   function buildEdges(part) {

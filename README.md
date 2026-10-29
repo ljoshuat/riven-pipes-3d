@@ -77,16 +77,22 @@ At rest the pipe renders as polished stainless steel; hovering a stop (or the dr
 | Attribute | Default | What it does |
 |---|---|---|
 | data-pipe-metalness | 1 | How metallic the steel reads |
-| data-pipe-roughness | 0.04 | 0 = mirror chrome, higher = brushed |
-| data-pipe-reflections | 1.25 | Strength of the studio reflections |
-| data-pipe-exposure | 1.05 | Overall brightness |
-| data-pipe-steel | #eef1f4 | Steel tint |
+| data-pipe-roughness | 0.32 | 0 = mirror chrome, higher = satin/brushed |
+| data-pipe-reflections | 1 | Strength of the studio reflections |
+| data-pipe-exposure | 1.35 | Overall brightness |
+| data-pipe-steel | #dfe2e4 | Steel tint |
 | data-pipe-xray | 0.12 | Steel opacity while x-raying |
 | data-pipe-rest-lines | 0 | Linework visible over the steel at rest |
 | data-pipe-xray-hidden | 0.35 | Dashed hidden lines while x-raying |
 | data-pipe-xray-speed | 0.6 | Fade time in seconds |
 | data-pipe-xray-on-hover | 1 | 1 = x-ray when hovering the drawing itself, 0 = only the 01/02/03 stops |
 | data-pipe-env-scene | 0 | Reflected room: 0 warehouse, 1 studio, 2 hall, 3 city (HDRIs from Poly Haven, CC0, in env/) |
-| data-pipe-env-rotate | 0 | Turn the reflected room (degrees) to move highlights along the pipe |
-| data-pipe-env-blur | 0 | Blur the reflections (0 = sharp chrome) |
+| data-pipe-env-rotate | 55 | Turn the reflected room (degrees) to move highlights along the pipe |
+| data-pipe-env-blur | 0.04 | Blur the reflections (0 = sharp chrome) |
 | data-pipe-key-light | 0.4 | Extra directional light for a hot specular streak |
+| data-pipe-env-sat | 0.3 | Colour of the reflected room (0 = neutral grey, 1 = full colour) |
+| data-pipe-grain | 0.5 | Brushed grain along the pipes |
+| data-pipe-flange-turn | 0.5 | Lathe-turned rings on flange faces |
+| data-pipe-grain-size | 1 | Grain coarseness |
+| data-pipe-grain-warmth | 0 | Warm satin tint |
+| data-pipe-coat | 0.3 | Glossy clear layer on top |
