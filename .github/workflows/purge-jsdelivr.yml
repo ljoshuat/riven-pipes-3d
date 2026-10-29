@@ -1,0 +1,20 @@
+name: Refresh jsDelivr cache
+# Every push to main clears jsDelivr's cached copy, so the site's @main script URL
+# serves the new version within a minute or two (no need to edit the Bricks script line).
+on:
+  push:
+    branches: [main]
+    paths: ["riven-pipes-3d.js"]
+  workflow_dispatch:
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Purge jsDelivr
+        run: |
+          for f in riven-pipes-3d.js riven-pipes-3d.min.js; do
+            for i in 1 2 3; do
+              out=$(curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@main/$f") && { echo "$f: $out"; break; }
+              sleep 10
+            done
+          done

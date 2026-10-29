@@ -11,7 +11,7 @@ image's camera, so it stays crisp at every zoom and the highlight spots stay ali
 Bricks > Settings > Custom code > Body (footer) scripts:
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/ljoshuat/riven-pipes-3d@v1.0.0/riven-pipes-3d.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/ljoshuat/riven-pipes-3d@main/riven-pipes-3d.min.js" defer></script>
 ```
 
 The script finds `.flow-illustration.zoom`, loads three.js r147 from jsDelivr when the section is near
@@ -55,5 +55,9 @@ Hovering 01/02/03 highlights the matching weld ring on the 3D drawing in the sit
 
 ## Releasing
 
-Edit `src/`, run `python3 build.py`, commit, tag (`v1.0.1`, ...) and bump the version in the Bricks line.
-Always reference a tag, not `main`: jsDelivr caches branch URLs.
+Edit `src/`, run `python3 build.py`, commit and push to `main`. The site loads `@main`, and the
+"Refresh jsDelivr cache" GitHub Action purges jsDelivr on every push, so changes go live in a minute or two
+with no edit in Bricks. Visitors' browsers may keep the previous copy for up to about 12 hours.
+
+To freeze a known-good version instead, point the Bricks line at a commit ID or tag
+(`@<commit>` / `@v1.2.0`).
