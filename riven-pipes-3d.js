@@ -335,26 +335,24 @@ const G = (() => {
         highlights[3] = out;
       }
     }
-    // 01: the whole top elbow (the bent fitting): its cross rings and the pipe lines through the bend
+    // 01: the long top run only (after the elbow and its flange): its wire rings and lines
     {
       const P = pipes.find((q) => q.id === "A");
       if (P && P.path.arcs.length) {
-        const [a0, a1] = P.path.arcs[0], rr = P.r * 1.006, out = { rings: [], lines: [] };
-        const nr = 7;
-        for (let i = 0; i < nr; i++) out.rings.push(ringAt(P, a0 + (a1 - a0) * i / (nr - 1), rr));
+        const a1 = P.path.arcs[P.path.arcs.length - 1][1], D = FLD(P.r), rr = P.r * 1.006, out = { rings: [], lines: [] };
+        const Lp = P.path.length;
+        let s0 = a1;
+        for (const sc of P.flanges) if (sc + D.hub > s0 && sc > a1 - D.hub) s0 = sc + D.hub;
+        s0 += 0.05;
+        const step = ringGap > 0 ? ringGap * Math.max(0.7, P.r) : 0;
+        if (step) for (let s = Math.ceil(s0 / step) * step; s < Lp - 0.2; s += step) out.rings.push(ringAt(P, s, rr));
         const nl = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, P.r / 0.9)) / 4) * 4);
-        // ...and the long top run after the elbow: its wire rings and lines all the way to the end
-        const Lp = P.path.length, step = ringGap > 0 ? ringGap * Math.max(0.7, P.r) : 0;
-        if (step) for (let s = Math.ceil((a1 + 0.05) / step) * step; s < Lp - 0.2; s += step) out.rings.push(ringAt(P, s, rr));
         for (let k = 0; k < nl; k++) {
           const th = 2 * Math.PI * k / nl + Math.PI / nl, L = [];
-          const ss = [];
-          for (let s = a0; s <= a1 + 1e-6; s += (a1 - a0) / 48) ss.push(s);
-          for (let s = a1 + 1; s < Lp; s += 1) ss.push(s);
-          ss.push(Lp);
-          for (const s of ss) {
+          for (let s = s0; ; s = Math.min(Lp, s + 1)) {
             const F = P.path.frame(s);
             L.push(add(F.c, add(mul(F.N, rr * Math.cos(th)), mul(F.B, rr * Math.sin(th)))));
+            if (s >= Lp) break;
           }
           out.lines.push(L);
         }
