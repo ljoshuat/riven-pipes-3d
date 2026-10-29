@@ -517,6 +517,12 @@
       var l = Object.keys(DEFAULTS).filter(function (k) { return !/^(color|mode|steel|highlightColor)$/.test(k) && LOOK[k] !== DEFAULTS[k]; }).map(function (k) {
         return attrName(k) + " = " + LOOK[k];
       });
+      // stainless: list every steel/reflection/x-ray value (even defaults) so the look is pinned, plus the switch that makes it live
+      if (STEEL) {
+        var sk = MCTRL.map(function (c) { return c[0]; });
+        l = l.filter(function (x) { return !sk.some(function (k) { return x.indexOf(attrName(k) + " ") === 0; }); });
+        l = l.concat(["data-pipe-mode = stainless"], sk.map(function (k) { return attrName(k) + " = " + LOOK[k]; }));
+      }
       ta.value = z.concat(l).join("\n") || "(all defaults)";
     }
     var preview = 0;
