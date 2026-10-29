@@ -341,9 +341,16 @@ const G = (() => {
         const nr = 7;
         for (let i = 0; i < nr; i++) out.rings.push(ringAt(P, a0 + (a1 - a0) * i / (nr - 1), rr));
         const nl = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, P.r / 0.9)) / 4) * 4);
+        // ...and the long top run after the elbow: its wire rings and lines all the way to the end
+        const Lp = P.path.length, step = ringGap > 0 ? ringGap * Math.max(0.7, P.r) : 0;
+        if (step) for (let s = Math.ceil((a1 + 0.05) / step) * step; s < Lp - 0.2; s += step) out.rings.push(ringAt(P, s, rr));
         for (let k = 0; k < nl; k++) {
           const th = 2 * Math.PI * k / nl + Math.PI / nl, L = [];
-          for (let s = a0; s <= a1 + 1e-6; s += (a1 - a0) / 48) {
+          const ss = [];
+          for (let s = a0; s <= a1 + 1e-6; s += (a1 - a0) / 48) ss.push(s);
+          for (let s = a1 + 1; s < Lp; s += 1) ss.push(s);
+          ss.push(Lp);
+          for (const s of ss) {
             const F = P.path.frame(s);
             L.push(add(F.c, add(mul(F.N, rr * Math.cos(th)), mul(F.B, rr * Math.sin(th)))));
           }
