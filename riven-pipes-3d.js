@@ -176,7 +176,7 @@ const G = (() => {
     const pipes = pipesFromNet();
     const parts = [], detail = [], rings = [], saddles = [], highlights = {};
     // weld rings highlighted for each hover stop: [stop, pipe id, flange index, side (-1 upstream hub, +1 downstream hub)]
-    const HL = [[2, "main", 1, 1], [3, "C", 0, -1]];
+    const HL = [[2, "main", 1, 1]];
 
     for (const P of pipes) {
       const { r, path } = P, D = FLD(r), Lp = path.length;
@@ -304,6 +304,29 @@ const G = (() => {
       // weld bead where the flange hub meets the pipe, plus a second ring for a clear band
       highlights[n] = { rings: [ringAt(P, P.flanges[fi] + side * D.hub, P.r * 1.015),
                                 ringAt(P, P.flanges[fi] + side * (D.hub - 0.06 * P.r), P.r * 1.03)], lines: [] };
+    }
+    // 03: the small elbow's flange joint: every ring of the flange pair plus the bolt outlines
+    {
+      const P = pipes.find((q) => q.id === "C");
+      if (P && P.flanges.length) {
+        const r = P.r, D = FLD(r), sc = P.flanges[0], out = { rings: [], lines: [] }, k = 1.004;
+        for (const [s, rr] of [[sc - D.hub, r * 1.015], [sc - D.face, D.RHUB], [sc - D.face, D.RF], [sc - D.gap, D.RF],
+                               [sc - D.gap, D.RRAISE], [sc + D.gap, D.RF], [sc + D.face, D.RF], [sc + D.face, D.RHUB], [sc + D.hub, r * 1.015]])
+          out.rings.push(ringAt(P, s, rr * k));
+        const F = P.path.frame(sc), nr = 0.27 * r * k, nh = 0.3 * r;
+        for (let i = 0; i < nBolts; i++) {
+          const th = 2 * Math.PI * (i + 0.5) / nBolts;
+          const c = add(F.c, add(mul(F.N, D.BC * Math.cos(th)), mul(F.B, D.BC * Math.sin(th))));
+          const hex = (s) => { const pts = []; for (let j = 0; j <= 6; j++) { const a = th + 2 * Math.PI * j / 6;
+            pts.push(add(add(c, mul(F.T, s)), add(mul(F.N, nr * Math.cos(a)), mul(F.B, nr * Math.sin(a))))); } return pts; };
+          for (const [s0, s1] of [[D.face, D.face + nh], [-D.face - nh, -D.face]]) {
+            const h0 = hex(s0), h1 = hex(s1);
+            out.lines.push(h0, h1);
+            for (let j = 0; j < 6; j++) out.lines.push([h0[j], h1[j]]);
+          }
+        }
+        highlights[3] = out;
+      }
     }
     // 01: the whole top elbow (the bent fitting): its cross rings and the pipe lines through the bend
     {
