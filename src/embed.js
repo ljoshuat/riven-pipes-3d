@@ -15,14 +15,14 @@
               "examples/js/lines/LineMaterial.js", "examples/js/lines/LineSegments2.js"];
   // Defaults. Each can be overridden per element with a data attribute on the zoom frame,
   // e.g. data-pipe-lines="20" (set in Bricks: element > Attributes), or tuned live with ?pipes-tune
-  var DEFAULTS = { lines: 24, rings: 1.5, bolts: 8, smooth: 96, outline: 1.4, detail: 0.7, detailOpacity: 0.6,
-                   ringOpacity: 0.38, hidden: 0.14, swing: 1, tilt: 1, color: "", highlight: 3, highlightColor: "", glow: 0.6, glowSize: 1,
+  var DEFAULTS = { lines: 20, rings: 1, bolts: 8, smooth: 104, outline: 0.6, detail: 0.7, detailOpacity: 0.6,
+                   ringOpacity: 0.55, hidden: 0.32, swing: 2.5, tilt: 2, color: "", highlight: 2.5, highlightColor: "", glow: 0.25, glowSize: 0.6,
                    // stainless mode (data-pipe-mode="stainless", or preview with ?pipes-stainless)
-                   mode: "lines", metalness: 1, roughness: 0.32, reflections: 1, exposure: 1.35, steel: "#dfe2e4",
-                   xray: 0.12, restLines: 0, xrayHidden: 0.35, xraySpeed: 0.6, xrayOnHover: 1,
-                   envScene: 0, envRotate: 55, envBlur: 0.04, keyLight: 0.4,
+                   mode: "stainless", metalness: 1, roughness: 0.32, reflections: 0.85, exposure: 0.8, steel: "#dfe2e4",
+                   xray: 0.44, restLines: 0.62, xrayHidden: 0.38, xraySpeed: 0.6, xrayOnHover: 1,
+                   envScene: 0, envRotate: 30, envBlur: 0.03, keyLight: 0.45,
                    // surface finish (like the reference photos): brushed grain along the pipes, turned rings on flanges
-                   grain: 0.5, grainSize: 1, grainWarmth: 0, flangeTurn: 0.5, envSat: 0.3, coat: 0.3 };
+                   grain: 0.57, grainSize: 2.6, grainWarmth: 0.5, flangeTurn: 0.47, envSat: 0.2, coat: 0.9 };
   var MCTRL = [
     ["envScene", "Reflections: 0 warehouse, 1 studio, 2 hall, 3 city", 0, 3, 1],
     ["envRotate", "Turn the room (deg)", 0, 360, 5], ["envBlur", "Reflection blur", 0, 0.3, 0.01],
@@ -34,6 +34,15 @@
     ["xray", "X-ray steel opacity", 0, 1, 0.02], ["restLines", "Lines at rest", 0, 1, 0.02],
     ["xrayHidden", "X-ray hidden lines", 0, 1, 0.02], ["xraySpeed", "X-ray fade s", 0.1, 2, 0.05],
     ["xrayOnHover", "X-ray on drawing hover (0/1)", 0, 1, 1]];
+  // camera angle per zoom position (0 = rest, 1-3 = hover stops), in degrees
+  var CAMCTRL = [];
+  [0, 1, 2, 3].forEach(function (n) {
+    var nm = n ? "0" + n : "Rest";
+    [["Turn", "turn left/right", 40], ["Tilt", "tilt up/down", 30], ["Roll", "level / roll", 30]].forEach(function (a) {
+      DEFAULTS["cam" + n + a[0]] = 0;
+      CAMCTRL.push(["cam" + n + a[0], nm + " " + a[1] + " (deg)", -a[2], a[2], 0.5]);
+    });
+  });
   var CTRL = [
     ["lines", "Lines around pipe", 0, 48, 4], ["rings", "Ring spacing (0 = off)", 0, 4, 0.25],
     ["bolts", "Bolts per flange", 4, 12, 2], ["smooth", "Surface smoothness", 24, 160, 8],
@@ -56,7 +65,7 @@
     ["zoom3X", "Zoom 03 focus X", 0, 1, 0.005, "--zoom-3-x", ""], ["zoom3Y", "Zoom 03 focus Y", 0, 1, 0.005, "--zoom-3-y", ""],
     ["zoomTime", "Zoom duration s", 0.2, 2.5, 0.05, "--zoom-duration", "s"]];
   // built-in overrides of the section's CSS: 01 now centres on the top elbow it highlights
-  var ZOOM_DEFAULTS = { zoom1X: 0.376, zoom1Y: 0.105 };
+  var ZOOM_DEFAULTS = { restZoom: 1, restX: 0.585, restY: 0.475, zoom1X: 0.565, zoom1Y: 0.22, zoomTime: 1.75 };
   var attrName = function (k) { return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }); };
   function readZoom(el) {
     var cs = getComputedStyle(el), Z = { set: {} };
@@ -402,7 +411,7 @@
     }
 
     // ---- 3D motion: swing while zooming, tilt toward the pointer over the drawing ----
-    var sLag = 1, yaw = 0, pitch = 0, ptr = { x: 0, y: 0, on: false };
+    var cam = [0, 0, 0], sLag = 1, yaw = 0, pitch = 0, ptr = { x: 0, y: 0, on: false };
     if (fine && !reduce) {
       frame.addEventListener("pointermove", function (ev) {
         var r = frame.getBoundingClientRect();
@@ -419,6 +428,14 @@
       var tPitch = (ptr.on ? ptr.y * 0.03 * LOOK.tilt : 0) + swing * 0.02 * LOOK.swing;
       var kk = 1 - Math.exp(-dt * 5);
       yaw += (tYaw - yaw) * kk; pitch += (tPitch - pitch) * kk;
+      // per-stop camera angle, eased over about the zoom duration
+      var st = activeStop(), D2R = Math.PI / 180;
+      var cT = [LOOK["cam" + st + "Turn"] * D2R, LOOK["cam" + st + "Tilt"] * D2R, LOOK["cam" + st + "Roll"] * D2R];
+      var zd = parseFloat(getComputedStyle(frame).getPropertyValue("--zoom-duration")) || 0.9;
+      var kc = reduce ? 1 : 1 - Math.exp(-dt * 4 / zd);
+      for (var ci = 0; ci < 3; ci++) cam[ci] += (cT[ci] - cam[ci]) * kc;
+      var camMoving = Math.abs(cT[0] - cam[0]) + Math.abs(cT[1] - cam[1]) + Math.abs(cT[2] - cam[2]) > 1e-4;
+      var Y = yaw + cam[0], Pt = pitch + cam[1];
 
       // base pose + exact CSS crop
       camera.position.copy(baseEye); camera.lookAt(baseTgt); camera.up.set(0, 1, 0);
@@ -426,21 +443,25 @@
         camera.setViewOffset(X.w, X.h, -X.tx / X.s, -X.ty / X.s, frame.clientWidth / X.s, frame.clientHeight / X.s);
       }
       camera.updateMatrixWorld(); camera.updateProjectionMatrix();
-      if (Math.abs(yaw) > 1e-5 || Math.abs(pitch) > 1e-5) {
+      if (Math.abs(Y) > 1e-5 || Math.abs(Pt) > 1e-5 || Math.abs(cam[2]) > 1e-5) {
         // orbit about the point at the centre of the current crop, at the photo's focus distance
         tmp.set(0, 0, 0.5).unproject(camera).sub(camera.position).normalize();
         piv.copy(camera.position).addScaledVector(tmp, baseEye.distanceTo(baseTgt));
         var off = camera.position.clone().sub(piv);
-        off.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+        off.applyAxisAngle(new THREE.Vector3(0, 1, 0), Y);
         var right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
-        off.applyAxisAngle(right, pitch);
-        var q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
-          .premultiply(new THREE.Quaternion().setFromAxisAngle(right, pitch));
+        off.applyAxisAngle(right, Pt);
+        var q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Y)
+          .premultiply(new THREE.Quaternion().setFromAxisAngle(right, Pt));
+        // roll: spin the view about the line to the crop centre (levels a sloping pipe)
+        var fwd = piv.clone().sub(camera.position).normalize();
+        off.applyAxisAngle(fwd, -cam[2]);
+        q.premultiply(new THREE.Quaternion().setFromAxisAngle(fwd, -cam[2]));
         camera.position.copy(piv).add(off);
         camera.quaternion.premultiply(q);
         camera.updateMatrixWorld();
       }
-      return Math.abs(X.s - sLag) > 1e-3 || Math.abs(tYaw - yaw) > 1e-4 || Math.abs(tPitch - pitch) > 1e-4;
+      return camMoving || Math.abs(X.s - sLag) > 1e-3 || Math.abs(tYaw - yaw) > 1e-4 || Math.abs(tPitch - pitch) > 1e-4;
     }
 
     var size = { w: 0, h: 0 };
@@ -556,6 +577,11 @@
       });
       html += "<label style='display:flex;justify-content:space-between;margin:6px 0'>Hold x-ray on <input data-hold type='checkbox'></label>";
     }
+    html += "<span style='" + hd + "'>Camera per zoom position</span><div style='opacity:.7;font-size:11px'>Moving a slider previews that position.</div>";
+    CAMCTRL.forEach(function (c) {
+      html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-o='" + c[0] + "' style='float:right'>" + LOOK[c[0]] + "</span>" +
+        "<input data-k='" + c[0] + "' type='range' min='" + c[2] + "' max='" + c[3] + "' step='" + c[4] + "' value='" + LOOK[c[0]] + "' style='width:100%'></label>";
+    });
     html += "<span style='" + hd + "'>Lines</span>";
     CTRL.forEach(function (c) {
       html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-o='" + c[0] + "' style='float:right'>" + LOOK[c[0]] + "</span>" +
@@ -623,6 +649,7 @@
       }
       var k = e.target.getAttribute("data-k"); if (!k) return;
       LOOK[k] = parseFloat(e.target.value); box.querySelector("[data-o='" + k + "']").textContent = LOOK[k];
+      var cm = k.match(/^cam(\d)/); if (cm && +cm[1] !== preview) { preview = +cm[1]; showPreview(); }
       dump(); changed(k);
     });
     box.querySelector("[data-copy]").addEventListener("click", function () {
