@@ -771,16 +771,17 @@
     scope.setAttribute("data-zoom-default-init", "");
     if (!document.getElementById("pipes3d-default-css")) {
       var css = document.createElement("style"); css.id = "pipes3d-default-css";
-      css.textContent = ".flow-item.is-zoom-default .flow-title{background-color:var(--color-blue)}" +
-        ".flow-item.is-zoom-default .flow-desc{max-height:12rem;opacity:1;" +
+      // only while no row is hovered, decided by CSS so it is right even before the mouse moves
+      var idle = ".zoom-scope:not(:has(.zoom-trigger:is(:hover,:focus-within))) .flow-item.is-zoom-default";
+      css.textContent = idle + " .flow-title{background-color:var(--color-blue)}" +
+        idle + " .flow-desc{max-height:12rem;opacity:1;" +
         "margin-top:clamp(0.6375rem,0.4879rem + 0.6385vw,1.254rem);margin-bottom:clamp(1.65rem,1.263rem + 1.653vw,3.246rem)}";
       document.head.appendChild(css);
     }
     var on = null;
     function apply() {
       var scroll = scope.hasAttribute("data-zoom-scroll");
-      var hovered = rows.some(function (r) { return r.matches(":hover") || r.matches(":focus-within"); });
-      var want = !scroll && !hovered;
+      var want = !scroll;
       if (want === on) return;
       on = want;
       // text only: the drawing stays zoomed out until a row is actually hovered
