@@ -542,7 +542,7 @@ window.RivenPipesG = G;
     // The 3D view can show beyond the old image edges, so drop the CSS edge clamp and let every
     // stop centre on its focus point (the image and CSS spots are hidden while 3D runs).
     st.textContent = (css ? ".flow-illustration.zoom[data-pipes3d]{" + css + "}" : "") +
-      '.flow-illustration.zoom[data-pipes3d="ready"] .zoom-stage{transform:translate(' +
+      '.flow-illustration.zoom[data-pipes3d]:not([data-pipes3d="failed"]) .zoom-stage{transform:translate(' +
       "calc(50cqw - var(--zoom-s,1) * var(--zoom-x,.5) * var(--zoom-w))," +
       "calc(50cqh - var(--zoom-s,1) * var(--zoom-y,.5) * var(--zoom-h))) scale(var(--zoom-s,1))}";
   }
@@ -581,7 +581,7 @@ window.RivenPipesG = G;
   function mount(frame) {
     var stage = frame.querySelector(".zoom-stage");
     var img = stage && stage.querySelector(".zoom-img");
-    if (!stage || frame.dataset.pipes3d) return;
+    if (!stage || (frame.dataset.pipes3d && frame.dataset.pipes3d !== "pending")) return;
     frame.dataset.pipes3d = "loading";
     var LOOK = readLook(frame);
     var q = location.search;
@@ -598,7 +598,12 @@ window.RivenPipesG = G;
     var revealed = false;
     var reveal = function () {
       if (revealed) return; revealed = true;
-      requestAnimationFrame(function () { canvas.style.opacity = "1"; });
+      // the page image is a still of this same view, so the swap is seamless: show the 3D
+      // underneath first, then fade the still away on top of it
+      requestAnimationFrame(function () {
+        canvas.style.transition = "none"; canvas.style.opacity = "1";
+        if (img) setTimeout(function () { img.style.transition = "opacity .5s"; img.style.opacity = "0"; }, 120);
+      });
     };
     stage.style.zIndex = "1";
     frame.insertBefore(canvas, frame.firstChild);
@@ -1006,7 +1011,6 @@ window.RivenPipesG = G;
       if (REBUILD[k]) { clearTimeout(tunePanel.t); tunePanel.t = setTimeout(function () { build(); wake(); }, 150); }
       applyLook(); lastEye = null; wake();
     });
-    if (img) { img.style.transition = "opacity .4s"; img.style.opacity = "0"; }
     // the 3D weld highlight replaces the CSS arc and dot
     if (!document.getElementById("pipes3d-hide-spots")) {
       var hs = document.createElement("style"); hs.id = "pipes3d-hide-spots";
@@ -1227,15 +1231,19 @@ window.RivenPipesG = G;
     if (!frames.length) return;
     // runs without WebGL too: the flat image uses the same CSS zoom
     frames.forEach(scrollStops);
+    // Reduced motion: no 3D and no zooming, just the still of the resting pipe (the page image)
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (!document.getElementById("pipes3d-still-css")) {
+        var rs = document.createElement("style"); rs.id = "pipes3d-still-css";
+        rs.textContent = "@media (prefers-reduced-motion: reduce){.flow-illustration.zoom .zoom-stage{transform:none!important;transition:none!important}}";
+        document.head.appendChild(rs);
+      }
+      return;
+    }
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
-    // the flat line image stays hidden while the 3D loads (it is the fallback, not a preview);
-    // it comes back if the 3D has not shown up after a while
-    frames.forEach(function (f) {
-      var im = f.querySelector(".zoom-img");
-      if (!im) return;
-      im.style.transition = "opacity .4s"; im.style.opacity = "0";
-      setTimeout(function () { if (f.dataset.pipes3d !== "ready") im.style.opacity = ""; }, 9000);
-    });
+    // the page image is a still of the 3D view, so it uses the same framing from the start
+    // (no jump when the 3D takes over)
+    frames.forEach(function (f) { if (!f.dataset.pipes3d) { f.dataset.pipes3d = "pending"; applyZoom(readZoom(f)); } });
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
         (!/[?&]pipes-lines\b/.test(location.search) && Array.prototype.some.call(frames, function (f) { return (f.getAttribute("data-pipe-mode") || DEFAULTS.mode) === "stainless"; }));
