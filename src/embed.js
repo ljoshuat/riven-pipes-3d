@@ -758,6 +758,15 @@
     toggle();
   }
 
+  // TEMPORARY: belongs in Bricks (Why section); shipped here while the site's editor connection
+  // is down. Phones: pull the next section up over the empty part of the pinned photo frame.
+  if (!document.getElementById("riven-why-gap")) {
+    var why = document.createElement("style"); why.id = "riven-why-gap";
+    why.textContent = "@media (max-width: 991px){.hscroll[data-hscroll-active]{margin-bottom:min(0px,(var(--hs-w) * 842 / 672 - 100svh) / 2)}" +
+      ".hscroll[data-hscroll-active] .hscroll-pin{pointer-events:none}.hscroll[data-hscroll-active] .hscroll-pin>*{pointer-events:auto}}";
+    document.head.appendChild(why);
+  }
+
   function init() {
     var frames = document.querySelectorAll(".flow-illustration.zoom, .flow-illustration .zoom");
     if (!frames.length) return;
