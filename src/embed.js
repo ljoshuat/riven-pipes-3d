@@ -480,6 +480,8 @@
     var scopeEl = frame.closest(".zoom-scope") || document;
     var hl = { stop: 0, since: 0, a: 0 };
     function activeStop() {
+      var sc = scopeEl.getAttribute && scopeEl.getAttribute("data-zoom-stop");
+      if (sc !== null && sc !== undefined) return +sc;
       var ts = scopeEl.querySelectorAll(".zoom-trigger");
       for (var i = 0; i < ts.length; i++) if (ts[i].matches(":hover") || ts[i].matches(":focus-within")) return i + 1;
       return +frame.getAttribute("data-pipes3d-preview") || 0;
@@ -659,9 +661,61 @@
     dump();
   }
 
+  // Touch screens have no hover, and on phones the drawing sits above the 01/02/03 list, so a
+  // tapped row would zoom a drawing that is already off screen. There the zoom scope gets
+  // data-zoom-scroll (the page's CSS pins the drawing to the top of the screen) and the row
+  // scrolled past the middle of the space below the drawing picks the zoom stop.
+  var SCROLL_MQ = "(hover: none) and (max-width: 991px)";
+  function scrollStops(frame) {
+    var scope = frame.closest(".zoom-scope");
+    if (!scope || scope.hasAttribute("data-zoom-scroll-init")) return;
+    var rows = [].slice.call(scope.querySelectorAll(".zoom-trigger"));
+    if (!rows.length) return;
+    scope.setAttribute("data-zoom-scroll-init", "");
+    var mq = matchMedia(SCROLL_MQ), stop = -1, ticking = false;
+    function set(n) {
+      if (n === stop) return;
+      stop = n;
+      scope.setAttribute("data-zoom-stop", n);
+      rows.forEach(function (r, i) { r.classList.toggle("is-zoom-on", i + 1 === n); });
+      // inline, so it wins over the hover rules (a tap leaves :hover stuck on touch screens)
+      [["s", 1], ["x", 0.5], ["y", 0.5]].forEach(function (k) {
+        if (n) frame.style.setProperty("--zoom-" + k[0], "var(--zoom-" + n + "-" + k[0] + ", " + k[1] + ")");
+        else frame.style.removeProperty("--zoom-" + k[0]);
+      });
+    }
+    function update() {
+      ticking = false;
+      var line = frame.getBoundingClientRect().bottom;
+      line += (innerHeight - line) * 0.45;
+      var n = 0;
+      rows.forEach(function (r, i) { if (r.getBoundingClientRect().top <= line) n = i + 1; });
+      set(n);
+    }
+    function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(update); } }
+    function toggle() {
+      if (mq.matches) {
+        scope.setAttribute("data-zoom-scroll", "");
+        addEventListener("scroll", onScroll, { passive: true });
+        addEventListener("resize", onScroll);
+        update();
+      } else {
+        removeEventListener("scroll", onScroll);
+        removeEventListener("resize", onScroll);
+        set(0); stop = -1;
+        scope.removeAttribute("data-zoom-scroll");
+        scope.removeAttribute("data-zoom-stop");
+      }
+    }
+    if (mq.addEventListener) mq.addEventListener("change", toggle);
+    toggle();
+  }
+
   function init() {
     var frames = document.querySelectorAll(".flow-illustration.zoom, .flow-illustration .zoom");
     if (!frames.length) return;
+    // runs without WebGL too: the flat image uses the same CSS zoom
+    frames.forEach(scrollStops);
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||

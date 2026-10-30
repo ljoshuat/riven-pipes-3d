@@ -21,6 +21,8 @@ the viewport, and keeps the original image as the fallback.
 
 - Mirrors the existing CSS hover zoom (01 / 02 / 03) through the camera's view offset.
 - Hover: a slight camera swing while zooming and a pointer tilt over the drawing.
+- Touch screens up to 991px have no hover, so the row scrolled into view picks the zoom instead: the script adds
+  `data-zoom-scroll` to the `.zoom-scope` and `.is-zoom-on` to the active row (the page CSS pins the drawing).
 - Renders only while something moves; pauses off screen; respects `prefers-reduced-motion`.
 
 ## Fine-tuning
