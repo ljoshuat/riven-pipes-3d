@@ -1145,16 +1145,28 @@ window.RivenPipesG = G;
       rows.forEach(function (r, i) { if (r.getBoundingClientRect().top <= line) n = i + 1; });
       set(n);
     }
+    // The drawing lets go once the last row sits just below it, so whatever follows the list
+    // (the button) scrolls normally. The page CSS turns this into a bottom margin on the drawing.
+    var last = rows[rows.length - 1];
+    function release() {
+      if (!scope.hasAttribute("data-zoom-scroll")) return;
+      var m = scope.getBoundingClientRect().bottom - parseFloat(getComputedStyle(scope).paddingBottom) - last.getBoundingClientRect().top + 24;
+      scope.style.setProperty("--zoom-release", Math.max(0, Math.round(m)) + "px");
+    }
+    var ro = "ResizeObserver" in window ? new ResizeObserver(release) : null;
     function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(update); } }
     function toggle() {
       if (mq.matches) {
         scope.setAttribute("data-zoom-scroll", "");
         addEventListener("scroll", onScroll, { passive: true });
         addEventListener("resize", onScroll);
-        update();
+        if (ro) ro.observe(scope);
+        release(); update();
       } else {
         removeEventListener("scroll", onScroll);
         removeEventListener("resize", onScroll);
+        if (ro) ro.disconnect();
+        scope.style.removeProperty("--zoom-release");
         set(0); stop = -1;
         scope.removeAttribute("data-zoom-scroll");
         scope.removeAttribute("data-zoom-stop");
