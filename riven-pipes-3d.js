@@ -592,7 +592,14 @@ window.RivenPipesG = G;
 
     var canvas = document.createElement("canvas");
     canvas.setAttribute("aria-hidden", "true");
-    canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;z-index:0;";
+    canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;z-index:0;opacity:0;transition:opacity .6s ease;";
+    // fade the drawing in once, when it is complete (steel: after its reflection photo arrives),
+    // so the intermediate looks never flash
+    var revealed = false;
+    var reveal = function () {
+      if (revealed) return; revealed = true;
+      requestAnimationFrame(function () { canvas.style.opacity = "1"; });
+    };
     stage.style.zIndex = "1";
     frame.insertBefore(canvas, frame.firstChild);
 
@@ -645,7 +652,8 @@ window.RivenPipesG = G;
           scene.environment = pm.fromScene(es, LOOK.envBlur, 0.1, 100).texture;
           if (old) old.dispose();
           es.remove(envSphere); wake();
-        }).catch(function (e) { console.warn("pipes3d env", e); });
+          requestAnimationFrame(reveal);
+        }).catch(function (e) { console.warn("pipes3d env", e); reveal(); });
       };
       scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x0a0c0e, 0.35));
       steelMat = new THREE.MeshPhysicalMaterial({
@@ -993,6 +1001,7 @@ window.RivenPipesG = G;
 
     applyLook();
     frameLoop(performance.now());
+    if (STEEL) setTimeout(reveal, 5000); else requestAnimationFrame(reveal);
     if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, STEEL, function (k) {
       if (REBUILD[k]) { clearTimeout(tunePanel.t); tunePanel.t = setTimeout(function () { build(); wake(); }, 150); }
       applyLook(); lastEye = null; wake();
@@ -1219,9 +1228,22 @@ window.RivenPipesG = G;
     // runs without WebGL too: the flat image uses the same CSS zoom
     frames.forEach(scrollStops);
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
+    // the flat line image stays hidden while the 3D loads (it is the fallback, not a preview);
+    // it comes back if the 3D has not shown up after a while
+    frames.forEach(function (f) {
+      var im = f.querySelector(".zoom-img");
+      if (!im) return;
+      im.style.transition = "opacity .4s"; im.style.opacity = "0";
+      setTimeout(function () { if (f.dataset.pipes3d !== "ready") im.style.opacity = ""; }, 9000);
+    });
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
         (!/[?&]pipes-lines\b/.test(location.search) && Array.prototype.some.call(frames, function (f) { return (f.getAttribute("data-pipe-mode") || DEFAULTS.mode) === "stainless"; }));
+      // start downloading the reflection photo now, alongside the 3D library
+      if (needSteel && window.fetch) {
+        var sc = +(frames[0].getAttribute("data-pipe-env-scene") || DEFAULTS.envScene) || 0;
+        fetch(ASSETS + "env/" + (ENVS[Math.round(sc)] || ENVS[0]) + ".hdr").catch(function () {});
+      }
       loadDeps(needSteel ? ["examples/js/environments/RoomEnvironment.js", "examples/js/loaders/RGBELoader.js"] : null).then(function () {
         if (!THREE.LineSegments2) return;
         frames.forEach(function (f) { try { mount(f); } catch (e) { console.warn("pipes3d", e); } });
@@ -1231,7 +1253,7 @@ window.RivenPipesG = G;
     if ("IntersectionObserver" in window) {
       var io = new IntersectionObserver(function (es) {
         if (es.some(function (e) { return e.isIntersecting; })) { io.disconnect(); go(); }
-      }, { rootMargin: "600px 0px" });
+      }, { rootMargin: "1500px 0px" });
       frames.forEach(function (f) { io.observe(f); });
     } else go();
   }
