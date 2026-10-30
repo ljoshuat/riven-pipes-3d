@@ -1213,9 +1213,9 @@ window.RivenPipesG = G;
     toggle();
   }
 
-  // With a mouse, 01 starts opened (blue title, text shown, drawing zoomed to 01) and the list
-  // returns to it whenever no row is hovered, so the section is never blank. Hovering another
-  // row hands over to the page's normal hover rules. Touch screens keep the scroll-driven stops.
+  // With a mouse, the 01 row starts opened (blue title, text shown) while the drawing stays zoomed
+  // out; the list returns to that whenever no row is hovered. Hovering a row (01 included)
+  // zooms the drawing through the page's normal hover rules. Touch screens keep the scroll-driven stops.
   function defaultOpen(frame) {
     var scope = frame.closest(".zoom-scope");
     if (!scope || scope.hasAttribute("data-zoom-default-init")) return;
@@ -1236,16 +1236,8 @@ window.RivenPipesG = G;
       var want = !scroll && !hovered;
       if (want === on) return;
       on = want;
+      // text only: the drawing stays zoomed out until a row is actually hovered
       rows[0].classList.toggle("is-zoom-default", want);
-      if (want) {
-        scope.setAttribute("data-zoom-stop", "1");
-        [["s", 1], ["x", 0.5], ["y", 0.5]].forEach(function (k) {
-          frame.style.setProperty("--zoom-" + k[0], "var(--zoom-1-" + k[0] + ", " + k[1] + ")");
-        });
-      } else if (!scroll) {
-        scope.removeAttribute("data-zoom-stop");
-        ["s", "x", "y"].forEach(function (k) { frame.style.removeProperty("--zoom-" + k); });
-      }
     }
     rows.forEach(function (r) {
       r.addEventListener("mouseenter", apply); r.addEventListener("focusin", apply);
