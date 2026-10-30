@@ -1213,49 +1213,11 @@ window.RivenPipesG = G;
     toggle();
   }
 
-  // With a mouse, the 01 row starts opened (blue title, text shown) while the drawing stays zoomed
-  // out; the list returns to that whenever no row is hovered. Hovering a row (01 included)
-  // zooms the drawing through the page's normal hover rules. Touch screens keep the scroll-driven stops.
-  function defaultOpen(frame) {
-    var scope = frame.closest(".zoom-scope");
-    if (!scope || scope.hasAttribute("data-zoom-default-init")) return;
-    var rows = [].slice.call(scope.querySelectorAll(".zoom-trigger"));
-    if (!rows.length) return;
-    scope.setAttribute("data-zoom-default-init", "");
-    if (!document.getElementById("pipes3d-default-css")) {
-      var css = document.createElement("style"); css.id = "pipes3d-default-css";
-      // only while no row is hovered, decided by CSS so it is right even before the mouse moves
-      var idle = ".zoom-scope:not(:has(.zoom-trigger:is(:hover,:focus-within))) .flow-item.is-zoom-default";
-      css.textContent = idle + " .flow-title{background-color:var(--color-blue)}" +
-        idle + " .flow-desc{max-height:12rem;opacity:1;" +
-        "margin-top:clamp(0.6375rem,0.4879rem + 0.6385vw,1.254rem);margin-bottom:clamp(1.65rem,1.263rem + 1.653vw,3.246rem)}";
-      document.head.appendChild(css);
-    }
-    var on = null;
-    function apply() {
-      var scroll = scope.hasAttribute("data-zoom-scroll");
-      var want = !scroll;
-      if (want === on) return;
-      on = want;
-      // text only: the drawing stays zoomed out until a row is actually hovered
-      rows[0].classList.toggle("is-zoom-default", want);
-    }
-    rows.forEach(function (r) {
-      r.addEventListener("mouseenter", apply); r.addEventListener("focusin", apply);
-      r.addEventListener("mouseleave", function () { setTimeout(apply, 0); });
-      r.addEventListener("focusout", function () { setTimeout(apply, 0); });
-    });
-    // the scroll mode switches on and off with the screen size
-    new MutationObserver(function () { on = null; apply(); }).observe(scope, { attributes: true, attributeFilter: ["data-zoom-scroll"] });
-    apply();
-  }
-
   function init() {
     var frames = document.querySelectorAll(".flow-illustration.zoom, .flow-illustration .zoom");
     if (!frames.length) return;
     // runs without WebGL too: the flat image uses the same CSS zoom
     frames.forEach(scrollStops);
-    frames.forEach(defaultOpen);
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
