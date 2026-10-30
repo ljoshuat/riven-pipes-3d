@@ -683,7 +683,10 @@
         "border-bottom:3rem solid transparent!important;" +
         "background:linear-gradient(var(--surface-dark,#000),transparent) bottom/100% 3rem no-repeat border-box border-box," +
         "linear-gradient(var(--surface-dark,#000),var(--surface-dark,#000)) padding-box!important;" +
-        "margin-bottom:calc(var(--zoom-release,0px) - 3rem)!important}}";
+        "margin-bottom:calc(var(--zoom-release,0px) - 3rem)!important;top:var(--zoom-top,0.75rem)!important}" +
+        // only while pinned, so the fill above never covers the heading before it
+        ".zoom-scope[data-zoom-scroll][data-zoom-stuck]>.flow-illustration.zoom{" +
+        "box-shadow:0 calc(-1 * var(--zoom-top,0.75rem)) 0 0 var(--surface-dark,#000)!important}}";
       document.head.appendChild(css);
     }
     var mq = matchMedia(SCROLL_MQ), stop = -1, ticking = false;
@@ -698,8 +701,21 @@
         else frame.style.removeProperty("--zoom-" + k[0]);
       });
     }
+    // The site header slides back in on scroll up; the pinned drawing moves down below it
+    // (following its slide frame by frame) and back up when it hides.
+    var header = document.getElementById("brx-header"), top = -1, follow = 0;
     function update() {
       ticking = false;
+      var hb = header ? header.getBoundingClientRect().bottom : 0;
+      var t = Math.round(Math.max(12, hb + 12));
+      if (t !== top) {
+        top = t;
+        scope.style.setProperty("--zoom-top", t + "px");
+      }
+      // keep following for a moment after the last scroll, while the header finishes sliding
+      if (performance.now() < follow) { ticking = true; requestAnimationFrame(update); }
+      var fr = frame.getBoundingClientRect();
+      scope.toggleAttribute("data-zoom-stuck", Math.abs(fr.top - top) < 1);
       var line = frame.getBoundingClientRect().bottom;
       line += (innerHeight - line) * 0.45;
       var n = 0;
@@ -715,7 +731,10 @@
       scope.style.setProperty("--zoom-release", Math.max(0, Math.round(m)) + "px");
     }
     var ro = "ResizeObserver" in window ? new ResizeObserver(release) : null;
-    function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(update); } }
+    function onScroll() {
+      follow = performance.now() + 700;
+      if (!ticking) { ticking = true; requestAnimationFrame(update); }
+    }
     function toggle() {
       if (mq.matches) {
         scope.setAttribute("data-zoom-scroll", "");
@@ -731,6 +750,8 @@
         set(0); stop = -1;
         scope.removeAttribute("data-zoom-scroll");
         scope.removeAttribute("data-zoom-stop");
+        scope.removeAttribute("data-zoom-stuck");
+        scope.style.removeProperty("--zoom-top"); top = -1;
       }
     }
     if (mq.addEventListener) mq.addEventListener("change", toggle);
