@@ -760,11 +760,56 @@
     toggle();
   }
 
+  // With a mouse, 01 starts opened (blue title, text shown, drawing zoomed to 01) and the list
+  // returns to it whenever no row is hovered, so the section is never blank. Hovering another
+  // row hands over to the page's normal hover rules. Touch screens keep the scroll-driven stops.
+  function defaultOpen(frame) {
+    var scope = frame.closest(".zoom-scope");
+    if (!scope || scope.hasAttribute("data-zoom-default-init")) return;
+    var rows = [].slice.call(scope.querySelectorAll(".zoom-trigger"));
+    if (!rows.length) return;
+    scope.setAttribute("data-zoom-default-init", "");
+    if (!document.getElementById("pipes3d-default-css")) {
+      var css = document.createElement("style"); css.id = "pipes3d-default-css";
+      css.textContent = ".flow-item.is-zoom-default .flow-title{background-color:var(--color-blue)}" +
+        ".flow-item.is-zoom-default .flow-desc{max-height:12rem;opacity:1;" +
+        "margin-top:clamp(0.6375rem,0.4879rem + 0.6385vw,1.254rem);margin-bottom:clamp(1.65rem,1.263rem + 1.653vw,3.246rem)}";
+      document.head.appendChild(css);
+    }
+    var on = null;
+    function apply() {
+      var scroll = scope.hasAttribute("data-zoom-scroll");
+      var hovered = rows.some(function (r) { return r.matches(":hover") || r.matches(":focus-within"); });
+      var want = !scroll && !hovered;
+      if (want === on) return;
+      on = want;
+      rows[0].classList.toggle("is-zoom-default", want);
+      if (want) {
+        scope.setAttribute("data-zoom-stop", "1");
+        [["s", 1], ["x", 0.5], ["y", 0.5]].forEach(function (k) {
+          frame.style.setProperty("--zoom-" + k[0], "var(--zoom-1-" + k[0] + ", " + k[1] + ")");
+        });
+      } else if (!scroll) {
+        scope.removeAttribute("data-zoom-stop");
+        ["s", "x", "y"].forEach(function (k) { frame.style.removeProperty("--zoom-" + k); });
+      }
+    }
+    rows.forEach(function (r) {
+      r.addEventListener("mouseenter", apply); r.addEventListener("focusin", apply);
+      r.addEventListener("mouseleave", function () { setTimeout(apply, 0); });
+      r.addEventListener("focusout", function () { setTimeout(apply, 0); });
+    });
+    // the scroll mode switches on and off with the screen size
+    new MutationObserver(function () { on = null; apply(); }).observe(scope, { attributes: true, attributeFilter: ["data-zoom-scroll"] });
+    apply();
+  }
+
   function init() {
     var frames = document.querySelectorAll(".flow-illustration.zoom, .flow-illustration .zoom");
     if (!frames.length) return;
     // runs without WebGL too: the flat image uses the same CSS zoom
     frames.forEach(scrollStops);
+    frames.forEach(defaultOpen);
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
