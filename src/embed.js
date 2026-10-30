@@ -22,11 +22,11 @@
                    xray: 0.44, restLines: 0.62, xrayHidden: 0.38, xraySpeed: 0.6, xrayOnHover: 1,
                    envScene: 0, envRotate: 30, envBlur: 0.03, keyLight: 0.45,
                    // surface finish (like the reference photos): brushed grain along the pipes, turned rings on flanges
-                   grain: 0.57, grainSize: 2.6, grainWarmth: 0.5, flangeTurn: 0.47, envSat: 0.2, coat: 0.9 };
+                   grain: 0.57, grainSize: 2.6, grainWarmth: 0.5, flangeTurn: 0.47, envSat: 0.2, coat: 0.9, shine: 1 };
   var MCTRL = [
     ["envScene", "Reflections: 0 warehouse, 1 studio, 2 hall, 3 city", 0, 3, 1],
     ["envRotate", "Turn the room (deg)", 0, 360, 5], ["envBlur", "Reflection blur", 0, 0.3, 0.01],
-    ["keyLight", "Key light", 0, 3, 0.05], ["envSat", "Reflection colour (0 = neutral grey)", 0, 1, 0.02], ["coat", "Gloss coat", 0, 1, 0.02],
+    ["keyLight", "Key light", 0, 3, 0.05], ["envSat", "Reflection colour (0 = neutral grey)", 0, 1, 0.02], ["coat", "Gloss coat", 0, 1, 0.02], ["shine", "Hot highlights (lower = tame the bright streaks)", 0, 1, 0.02],
     ["grain", "Brushed grain (pipes)", 0, 1, 0.01], ["flangeTurn", "Turned rings (flanges)", 0, 1, 0.01],
     ["grainSize", "Grain coarseness", 0.3, 4, 0.05], ["grainWarmth", "Warm satin tint", 0, 1, 0.01],
     ["metalness", "Metalness", 0, 1, 0.02], ["roughness", "Roughness (0 = chrome, up = brushed)", 0, 1, 0.01],
@@ -164,10 +164,10 @@
       var keyL = new THREE.DirectionalLight(0xffffff, LOOK.keyLight); keyL.position.set(-6, 14, 12); scene.add(keyL);
       // real reflections: an HDR photo of a warehouse (or studio/hall/city) wrapped round the pipe.
       // It goes on an inside-out sphere so it can be turned, then gets pre-blurred for the steel.
-      var hdrCache = {}, envKey = "", envSphere = null, envSat = { value: 1 };
+      var hdrCache = {}, envKey = "", envSphere = null, envSat = { value: 1 }, envClip = { value: 60 };
       var setEnv = function () {
         var name = ENVS[Math.round(LOOK.envScene)] || ENVS[0];
-        var k = name + "|" + LOOK.envRotate + "|" + LOOK.envBlur + "|" + LOOK.envSat;
+        var k = name + "|" + LOOK.envRotate + "|" + LOOK.envBlur + "|" + LOOK.envSat + "|" + LOOK.shine;
         if (k === envKey) return; envKey = k;
         (hdrCache[name] = hdrCache[name] || new Promise(function (res, rej) {
           new THREE.RGBELoader().setDataType(THREE.HalfFloatType).load(ASSETS + "env/" + name + ".hdr", res, undefined, rej);
@@ -177,12 +177,14 @@
             envSphere = new THREE.Mesh(new THREE.SphereGeometry(50, 64, 32),
               new THREE.MeshBasicMaterial({ side: THREE.BackSide, toneMapped: false }));
             envSphere.material.onBeforeCompile = function (sh) {
-              sh.uniforms.uSat = envSat;
-              sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uSat;")
-                .replace("#include <map_fragment>", "#include <map_fragment>\ndiffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722))), diffuseColor.rgb, uSat);");
+              sh.uniforms.uSat = envSat; sh.uniforms.uClip = envClip;
+              sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uSat, uClip;")
+                .replace("#include <map_fragment>", "#include <map_fragment>\ndiffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722))), diffuseColor.rgb, uSat);\n" +
+                  // soft-limit the brightest parts of the room (lights, windows) so streaks don't blow out
+                  "diffuseColor.rgb = diffuseColor.rgb / (1.0 + diffuseColor.rgb / uClip);");
             };
           }
-          envSat.value = LOOK.envSat;
+          envSat.value = LOOK.envSat; envClip.value = 0.6 + 60.0 * Math.pow(LOOK.shine, 3);
           envSphere.material.map = tex; envSphere.material.needsUpdate = true;
           envSphere.rotation.y = LOOK.envRotate * Math.PI / 180;
           var es = new THREE.Scene(); es.add(envSphere);
@@ -281,7 +283,7 @@
       if (steelMat) {
         steelMat.metalness = LOOK.metalness; steelMat.roughness = LOOK.roughness;
         steelMat.envMapIntensity = LOOK.reflections; renderer.toneMappingExposure = LOOK.exposure;
-        keyL.intensity = LOOK.keyLight; setEnv();
+        keyL.intensity = LOOK.keyLight * (0.25 + 0.75 * LOOK.shine); setEnv();
         GU.uGrain.value = LOOK.grain; GU.uTurn.value = LOOK.flangeTurn;
         GU.uSize.value = LOOK.grainSize; GU.uWarm.value = LOOK.grainWarmth; steelMat.clearcoat = LOOK.coat;
       }

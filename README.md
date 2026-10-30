@@ -98,3 +98,4 @@ At rest the pipe renders as polished stainless steel; hovering a stop (or the dr
 | data-pipe-grain-size | 1 | Grain coarseness |
 | data-pipe-grain-warmth | 0 | Warm satin tint |
 | data-pipe-coat | 0.3 | Glossy clear layer on top |
+| data-pipe-shine | 1 | Hot highlights: lower tames the brightest reflected lights and the key light |
