@@ -1125,6 +1125,20 @@ window.RivenPipesG = G;
     var rows = [].slice.call(scope.querySelectorAll(".zoom-trigger"));
     if (!rows.length) return;
     scope.setAttribute("data-zoom-scroll-init", "");
+    // While pinned the drawing is capped to about a third of the screen (full width, the zoom crops
+    // top and bottom), and a fading band under it (a transparent border painted with a gradient) lets the rows fade out instead of being cut.
+    // The border sits outside the clipped box; the negative margin keeps the layout unchanged.
+    // !important beats the page's own sticky rule.
+    if (!document.getElementById("pipes3d-scroll-css")) {
+      var css = document.createElement("style"); css.id = "pipes3d-scroll-css";
+      css.textContent = "@media " + SCROLL_MQ + "{.zoom-scope[data-zoom-scroll]>.flow-illustration.zoom{" +
+        "box-sizing:content-box!important;width:100%!important;max-height:36svh!important;" +
+        "border-bottom:3rem solid transparent!important;" +
+        "background:linear-gradient(var(--surface-dark,#000),transparent) bottom/100% 3rem no-repeat border-box border-box," +
+        "linear-gradient(var(--surface-dark,#000),var(--surface-dark,#000)) padding-box!important;" +
+        "margin-bottom:calc(var(--zoom-release,0px) - 3rem)!important}}";
+      document.head.appendChild(css);
+    }
     var mq = matchMedia(SCROLL_MQ), stop = -1, ticking = false;
     function set(n) {
       if (n === stop) return;
@@ -1150,7 +1164,7 @@ window.RivenPipesG = G;
     var last = rows[rows.length - 1];
     function release() {
       if (!scope.hasAttribute("data-zoom-scroll")) return;
-      var m = scope.getBoundingClientRect().bottom - parseFloat(getComputedStyle(scope).paddingBottom) - last.getBoundingClientRect().top + 24;
+      var m = scope.getBoundingClientRect().bottom - parseFloat(getComputedStyle(scope).paddingBottom) - last.getBoundingClientRect().top + 56;
       scope.style.setProperty("--zoom-release", Math.max(0, Math.round(m)) + "px");
     }
     var ro = "ResizeObserver" in window ? new ResizeObserver(release) : null;
