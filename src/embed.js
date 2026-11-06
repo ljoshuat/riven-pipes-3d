@@ -18,7 +18,7 @@
   var DEFAULTS = { lines: 20, rings: 1, bolts: 8, smooth: 104, outline: 0.6, detail: 0.7, detailOpacity: 0.6,
                    ringOpacity: 0.55, hidden: 0.32, swing: 2.5, tilt: 2, color: "", highlight: 2.5, highlightColor: "", glow: 0.25, glowSize: 0.6,
                    // stainless mode (data-pipe-mode="stainless", or preview with ?pipes-stainless)
-                   mode: "stainless", metalness: 1, roughness: 0.32, reflections: 0.85, exposure: 0.8, steel: "#dfe2e4",
+                   mode: "stainless", variant: "", metalness: 1, roughness: 0.32, reflections: 0.85, exposure: 0.8, steel: "#dfe2e4",
                    xray: 0.44, restLines: 0.62, xrayHidden: 0.38, xraySpeed: 0.6, xrayOnHover: 1,
                    envScene: 0, envRotate: 30, envBlur: 0.03, keyLight: 0.45,
                    // surface finish (like the reference photos): brushed grain along the pipes, turned rings on flanges
@@ -97,7 +97,7 @@
     var L = Object.assign({}, DEFAULTS);
     Object.keys(DEFAULTS).forEach(function (k) {
       var a = el.getAttribute("data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }));
-      if (a !== null && a !== "") L[k] = /color|mode|steel/i.test(k) ? a : parseFloat(a);
+      if (a !== null && a !== "") L[k] = /color|mode|steel|variant/i.test(k) ? a : parseFloat(a);
     });
     return L;
   }
@@ -132,6 +132,8 @@
     frame.dataset.pipes3d = "loading";
     var LOOK = readLook(frame);
     var q = location.search;
+    // alt build (client add-ons such as the ball valve): preview with ?pipes-alt, or data-pipe-variant="alt"
+    var ALT = /[?&]pipes-alt\b/.test(q) || LOOK.variant === "alt";
     var STEEL = /[?&]pipes-stainless\b/.test(q) || (LOOK.mode === "stainless" && !/[?&]pipes-lines\b/.test(q));
     var ZOOM = readZoom(frame); applyZoom(ZOOM);
     var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -169,7 +171,7 @@
 
     var col = new THREE.Color(LOOK.color || getComputedStyle(frame).color || "#fff");
     var scene = new THREE.Scene();
-    var steelMat = null, steelObj = null;
+    var steelMat = null, steelObj = null, gripMat = null, gripObj = null;
     if (STEEL) {
       var pm = new THREE.PMREMGenerator(renderer);
       scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
@@ -212,6 +214,9 @@
         color: new THREE.Color(LOOK.steel), metalness: LOOK.metalness, roughness: LOOK.roughness,
         envMapIntensity: LOOK.reflections, clearcoat: LOOK.coat, clearcoatRoughness: 0.08,
         transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
+      // the ball valve's lever grip: blue vinyl coating
+      gripMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color("#0d3fd6").convertSRGBToLinear(), metalness: 0, roughness: 0.5,
+        clearcoat: 0.25, clearcoatRoughness: 0.3, envMapIntensity: 0.25, transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
       // brushed / lathe-turned finish: fine streaks that tilt the reflection across the grain,
       // so highlights smear along it like real satin stainless
       var GU = { uGrain: { value: 0 }, uTurn: { value: 0 }, uSize: { value: 1 }, uWarm: { value: 0 } };
@@ -310,6 +315,7 @@
       M.hidden.opacity = STEEL ? LOOK.xrayHidden * xa : LOOK.hidden;
       if (hidObj) hidObj.visible = M.hidden.opacity > 0.001;
       if (steelMat) { steelMat.opacity = 1 - (1 - LOOK.xray) * xa; steelMat.depthWrite = steelMat.opacity > 0.02; }
+      if (gripMat) { gripMat.opacity = steelMat.opacity; gripMat.depthWrite = steelMat.depthWrite; }
     }
     M.hidden.depthFunc = THREE.GreaterDepth;
 
@@ -327,7 +333,7 @@
     var edgeObj = null, hidObj = null, lastEye = null;
     function drop(o) { if (o) { scene.remove(o); o.geometry.dispose(); } }
     function build() {
-      var model = G.build({ nLines: LOOK.lines, ringGap: LOOK.rings, nBolts: LOOK.bolts, seg: LOOK.smooth, nutDetail: true });
+      var model = G.build({ nLines: LOOK.lines, ringGap: LOOK.rings, nBolts: LOOK.bolts, seg: LOOK.smooth, nutDetail: true, valve: ALT });
       var mesh = G.meshArrays(model.parts);
       var geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(mesh.pos, 3));
@@ -351,7 +357,13 @@
       occ = new THREE.Mesh(geo, occMat); occ.renderOrder = 0; scene.add(occ);
       if (STEEL) {
         if (steelObj) { scene.remove(steelObj); steelObj.geometry.dispose(); }
-        steelObj = new THREE.Mesh(shadedGeometry(model.parts), steelMat);
+        if (gripObj) { scene.remove(gripObj); gripObj.geometry.dispose(); gripObj = null; }
+        var grips = model.parts.filter(function (p) { return p.kind === "handle"; });
+        if (grips.length) {
+          gripObj = new THREE.Mesh(shadedGeometry(grips), gripMat);
+          gripObj.renderOrder = 0.5; gripObj.frustumCulled = false; scene.add(gripObj);
+        }
+        steelObj = new THREE.Mesh(shadedGeometry(model.parts.filter(function (p) { return p.kind !== "handle"; })), steelMat);
         steelObj.renderOrder = 0.5; steelObj.frustumCulled = false; scene.add(steelObj);
       }
       var saddle = G.polylinesToSegments(model.saddles);

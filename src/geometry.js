@@ -357,6 +357,62 @@ const G = (() => {
         highlights[1] = out;
       }
     }
+    // ---------- alt build: side-mounted ball valve on riser A (between its two flanges) ----------
+    // A small quarter-turn valve welded to the side of the riser on a boss: hex end pieces, ball
+    // housing, outlet plug, stem on top and a blue vinyl lever running out along the valve (open).
+    if (opts.valve) {
+      const P = pipes.find((q) => q.id === "A");
+      const r = P.r, [fl0, fl1] = [...P.flanges].sort((x, y) => x - y);
+      const sm = (fl0 + fl1) / 2, F = P.path.frame(sm), c = F.c, Y = [0, 1, 0];
+      const lineFrame = (c0, dir) => {
+        const ref = Math.abs(dir[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+        const N = norm(cross(dir, ref)), B = cross(dir, N);
+        return (t) => ({ c: add(c0, mul(dir, t)), T: dir, N, B });
+      };
+      const u = norm([0.97, 0, -0.22]);                // out of the pipe wall, side-on to the viewer (pointing right)
+      const vf = lineFrame(c, u), R = (k) => k * r;
+      const part = (profile, M, extra, kind = "valve") =>
+        parts.push(buildEdges(Object.assign(lathe(Object.assign({ profile: profile.map(([t, q]) => [R(t), R(q)]), frameAt: vf, M }, extra || {})), { kind })));
+      part([[0.75, 0.62], [1.08, 0.62], [1.12, 0.57]], 64, { cap1: true });                        // weld boss on the pipe wall
+      part([[1.12, 0.4], [1.2, 0.4]], 48);                                                           // neck
+      part([[1.2, 0.5], [1.48, 0.5]], 6, { cap0: true, cap1: true, phase: Math.PI / 6 });           // inner hex end
+      part([[1.48, 0.43], [1.53, 0.47], [2.03, 0.47], [2.08, 0.43]], 64);                         // ball housing
+      part([[1.64, 0.53], [1.92, 0.53]], 8, { cap0: true, cap1: true, phase: Math.PI / 8 });        // body flats
+      part([[2.08, 0.5], [2.34, 0.5]], 6, { cap0: true, cap1: true, phase: Math.PI / 6 });          // outer hex end
+      part([[2.34, 0.36], [2.42, 0.36], [2.42, 0.3], [2.7, 0.3], [2.77, 0.22]], 48, { cap1: true }); // outlet plug
+      // stem straight up from the middle of the housing
+      const sc = add(c, mul(u, R(1.78))), sfr = lineFrame(sc, Y);
+      const spart = (profile, M, extra) =>
+        parts.push(buildEdges(Object.assign(lathe(Object.assign({ profile: profile.map(([t, q]) => [R(t), R(q)]), frameAt: sfr, M }, extra || {})), { kind: "valve" })));
+      spart([[0.45, 0.2], [0.6, 0.2]], 32);                                                          // stem collar
+      spart([[0.6, 0.3], [0.66, 0.3]], 32, { cap0: true, cap1: true });                             // stop plate
+      spart([[0.82, 0.19], [0.94, 0.19], [0.98, 0.14]], 6, { cap0: true, cap1: true });             // stem nut on top of the lever
+      // lever: flat bar, rises off the stem then runs out along the valve with a slight lift
+      const w = norm(cross(u, Y));
+      const bar = (p0, dir, len, width, thick) => {
+        const t = norm(cross(dir, w)), pts = [];
+        for (const a of [0, len]) for (const b of [-width / 2, width / 2]) for (const d of [-thick / 2, thick / 2])
+          pts.push(add(p0, add(mul(dir, a), add(mul(w, b), mul(t, d)))));
+        const q = (ia, ib, id) => ia * 4 + ib * 2 + id;
+        const faces = [
+          { v: [q(0, 0, 0), q(0, 1, 0), q(0, 1, 1), q(0, 0, 1)], n: mul(dir, -1) },
+          { v: [q(1, 0, 0), q(1, 0, 1), q(1, 1, 1), q(1, 1, 0)], n: dir },
+          { v: [q(0, 0, 0), q(0, 0, 1), q(1, 0, 1), q(1, 0, 0)], n: mul(w, -1) },
+          { v: [q(0, 1, 0), q(1, 1, 0), q(1, 1, 1), q(0, 1, 1)], n: w },
+          { v: [q(0, 0, 0), q(1, 0, 0), q(1, 1, 0), q(0, 1, 0)], n: mul(t, -1) },
+          { v: [q(0, 0, 1), q(0, 1, 1), q(1, 1, 1), q(1, 0, 1)], n: t },
+        ];
+        const vn = pts.map(() => [0, 0, 0]);
+        for (const f of faces) for (const i2 of f.v) vn[i2] = add(vn[i2], f.n);
+        parts.push(buildEdges({ pos: pts, faces, vn: vn.map(norm), grain: pts.map(() => [0, 0, 0]), M: 0, kind: "handle" }));
+      };
+      const base = add(sc, mul(Y, R(0.74)));                                                       // lever eye sits on the stem
+      const d1 = norm(add(mul(Y, 0.8), mul(u, 0.6))), p1 = add(base, mul(d1, R(0.42)));
+      const d2 = norm(add(u, mul(Y, 0.16)));
+      bar(add(base, mul(d1, R(-0.1))), d1, R(0.58), R(0.26), R(0.12));                            // riser of the lever
+      bar(add(p1, mul(d2, R(-0.08))), d2, R(1.5), R(0.26), R(0.15));                              // grip, out along the valve
+    }
+
     return { parts, detail, rings, saddles, highlights };
   }
 
