@@ -140,10 +140,23 @@ const G = (() => {
     { id: "D2", r: 0.578, x: 10.205, down: 40, riserFlanges: [3.268] },
   ];
 
-  function pipesFromNet() {
-    const out = [];
-    const branches = NET.filter((p) => p.id !== "main");
-    const m = NET[0];
+  // Alt build (client add-ons, matching their mock-up): an inline 3-piece ball valve on the main pipe
+  // left of the first riser, a temperature sensor standing on the main pipe where the third riser
+  // was, and the two down pipes moved to sit directly under the risers.
+  const ALT = { valveX: -3.8, valveHalf: 2.05, sensorX: 10.3 };
+  const NET_ALT = [
+    // (the far-left flange pair is dropped: it would sit right against the valve in the wider alt view)
+    Object.assign({}, NET[0], { flangesX: [3.637], welds: [ALT.valveX - ALT.valveHalf, ALT.valveX + ALT.valveHalf],
+                                gapsX: [[ALT.valveX - ALT.valveHalf, ALT.valveX + ALT.valveHalf]] }),
+    NET[1], NET[2],
+    { id: "D1", r: 0.88, x: 1.142, down: 40, riserFlanges: [4.3] },
+    { id: "D2", r: 0.833, x: 6.097, down: 40, riserFlanges: [4.1] },
+  ];
+
+  function pipesFromNet(alt) {
+    const out = [], net = alt ? NET_ALT : NET;
+    const branches = net.filter((p) => p.id !== "main");
+    const m = net[0];
     // main pipe: cut where branch mouths open
     const mainCut = (p) => branches.some((b) => {
       const dx = p[0] - b.x, dz = p[2];
@@ -152,7 +165,8 @@ const G = (() => {
     });
     const mp = makePath(m.pts, 1, [0, 1, 0]);
     out.push({ id: "main", r: m.r, path: mp, flanges: m.flangesX.map((x) => x - m.pts[0][0]),
-      welds: m.welds.map((x) => x - m.pts[0][0]), cut: mainCut, tee: null });
+      welds: m.welds.map((x) => x - m.pts[0][0]), cut: mainCut, tee: null,
+      gaps: (m.gapsX || []).map(([x0, x1]) => [x0 - m.pts[0][0], x1 - m.pts[0][0]]) });
     const inMain = (p) => p[1] * p[1] + p[2] * p[2] < 0.995;
     for (const b of branches) {
       const Rb = 1.5 * b.r;
@@ -176,12 +190,161 @@ const G = (() => {
 
   const FLD = (r) => ({ RF: 1.85 * r, RHUB: 1.24 * r, RRAISE: 1.36 * r, BC: 1.6 * r, hub: 0.78 * r, face: 0.4 * r, gap: 0.05 * r });
 
+  // ---------- helpers for add-on parts ----------
+  // straight axis frame for lathe(): t is the distance along dir from c0
+  const lineFrame = (c0, dir, ref) => {
+    const T = norm(dir), rf = ref || (Math.abs(T[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]);
+    const N = norm(cross(T, rf)), B = cross(T, N);
+    return (t) => ({ c: add(c0, mul(T, t)), T, N, B });
+  };
+  const offsetFrame = (frameAt, off) => (t) => { const F = frameAt(t); return { c: add(F.c, off(F)), T: F.T, N: F.N, B: F.B }; };
+  // flat bar swept along a bent path. The path is 2D in the plane (ax, ay) through o; the bar is
+  // `thick` in that plane and `width` across it (along az). Bends are mitred.
+  function sweepBar(o, ax, ay, az, path, thick, width) {
+    const m = path.length, pos = [], faces = [];
+    const P3 = (x, y, z) => add(o, add(add(mul(ax, x), mul(ay, y)), mul(az, z)));
+    const dirs = [];
+    for (let i = 0; i < m - 1; i++) { const dx = path[i + 1][0] - path[i][0], dy = path[i + 1][1] - path[i][1], l = Math.hypot(dx, dy) || 1; dirs.push([dx / l, dy / l]); }
+    const left = (d) => [-d[1], d[0]];
+    const top = [], bot = [];
+    for (let i = 0; i < m; i++) {
+      const d0 = dirs[Math.max(0, i - 1)], d1 = dirs[Math.min(m - 2, i)];
+      const n0 = left(d0), n1 = left(d1);
+      let mx = n0[0] + n1[0], my = n0[1] + n1[1]; const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
+      const h = (thick / 2) / Math.max(0.3, mx * n0[0] + my * n0[1]);
+      top.push([path[i][0] + mx * h, path[i][1] + my * h]); bot.push([path[i][0] - mx * h, path[i][1] - my * h]);
+    }
+    // vertex index: side (0: -az, 1: +az), station i, 0 top / 1 bottom
+    const ix = (sd, i, tb) => (sd * m + i) * 2 + tb;
+    for (const sd of [0, 1]) for (let i = 0; i < m; i++) {
+      const z = (sd ? 1 : -1) * width / 2;
+      pos.push(P3(top[i][0], top[i][1], z), P3(bot[i][0], bot[i][1], z));
+    }
+    // quads are wound counter-clockwise seen from outside (checked against the wanted normal)
+    const quad = (a, b, c, d, n) => {
+      const w = cross(sub(pos[b], pos[a]), sub(pos[c], pos[a]));
+      faces.push({ v: dot(w, n) >= 0 ? [a, b, c, d] : [a, d, c, b], n });
+    };
+    const v3 = (d) => add(mul(ax, d[0]), mul(ay, d[1]));
+    for (let i = 0; i < m - 1; i++) {
+      const nl = v3(left(dirs[i]));
+      quad(ix(0, i, 0), ix(1, i, 0), ix(1, i + 1, 0), ix(0, i + 1, 0), nl);
+      quad(ix(0, i, 1), ix(1, i, 1), ix(1, i + 1, 1), ix(0, i + 1, 1), mul(nl, -1));
+      quad(ix(1, i, 0), ix(1, i, 1), ix(1, i + 1, 1), ix(1, i + 1, 0), az);
+      quad(ix(0, i, 0), ix(0, i, 1), ix(0, i + 1, 1), ix(0, i + 1, 0), mul(az, -1));
+    }
+    quad(ix(0, 0, 0), ix(1, 0, 0), ix(1, 0, 1), ix(0, 0, 1), mul(v3(dirs[0]), -1));
+    quad(ix(0, m - 1, 0), ix(1, m - 1, 0), ix(1, m - 1, 1), ix(0, m - 1, 1), v3(dirs[m - 2]));
+    const vn = pos.map(() => [0, 0, 0]);
+    for (const f of faces) for (const i of f.v) vn[i] = add(vn[i], f.n);
+    return { pos, faces, vn: vn.map(norm), grain: pos.map(() => [0, 0, 0]), M: 0 };
+  }
+  const circle = (c, N, B, rr, n = 48) => {
+    const pts = []; for (let j = 0; j <= n; j++) { const a = 2 * Math.PI * j / n; pts.push(add(c, add(mul(N, rr * Math.cos(a)), mul(B, rr * Math.sin(a))))); }
+    return pts;
+  };
+  // lines that follow a turned profile (like the long lines on the pipes), broken at radial steps
+  const profileLines = (out, frameAt, profile, n) => {
+    for (let k = 0; k < n; k++) {
+      const th = 2 * Math.PI * (k + 0.5) / n; let cur = [];
+      for (let i = 0; i < profile.length; i++) {
+        const [t, r] = profile[i];
+        if (i && Math.abs(t - profile[i - 1][0]) < 1e-9) { if (cur.length > 1) out.push(cur); cur = []; }
+        const F = frameAt(t);
+        cur.push(add(F.c, add(mul(F.N, r * Math.cos(th)), mul(F.B, r * Math.sin(th)))));
+      }
+      if (cur.length > 1) out.push(cur);
+    }
+  };
+
+  // ---------- alt build add-ons: inline ball valve + temperature sensor ----------
+  function addOns({ parts, detail, rings, pipes, seg, nLines }) {
+    const M2 = Math.max(seg, 72), X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
+    const put = (geo, props) => parts.push(buildEdges(Object.assign(geo, { kind: "fitting" }, props || {})));
+    // a turned (lathe) piece: profile is [distance along the axis, radius]
+    const turn = (fr, profile, M, o, props) => put(lathe(Object.assign({ profile, frameAt: fr, M }, o || {})), Object.assign({ turned: true }, props || {}));
+    const hex = (fr, t0, t1, r, phase, props) => turn(fr, [[t0, r], [t1, r]], 6, { cap0: true, cap1: true, phase: phase || 0 }, Object.assign({ scale: 0.3 }, props || {}));
+    const nMain = nLines > 0 ? Math.max(8, Math.round(nLines * 1.1 / 4) * 4) : 0;
+
+    // ===== 3-piece ball valve, inline on the main pipe (r = 1) =====
+    {
+      const main = pipes.find((q) => q.id === "main"), xv = ALT.valveX, H = ALT.valveHalf;
+      const sv = main.gaps[0][0] + H, fm = (t) => main.path.frame(sv + t);
+      // weld-end caps (butt-welded to the pipe) either side of the body
+      const capL = [[-H, 1.0], [-1.57, 1.12], [-1.57, 1.3], [-1.25, 1.3], [-1.25, 1.03]];
+      const capR = capL.map(([t, r]) => [-t, r]).reverse();
+      const body = [[-1.25, 1.03], [-1.12, 1.03], [-1.02, 1.1], [-0.3, 1.16], [-0.3, 1.2], [0.3, 1.2], [0.3, 1.16], [1.02, 1.1], [1.12, 1.03], [1.25, 1.03]];
+      turn(fm, capL, M2); turn(fm, capR, M2); turn(fm, body, M2, null, { turned: false });
+      if (nMain) for (const p of [capL.slice(0, 2), body, capR.slice(-2)]) profileLines(detail, fm, p, nMain);
+      // four body bolts through ears on the caps, with a nut at each end
+      for (let k = 0; k < 4; k++) {
+        const th = Math.PI / 4 + k * Math.PI / 2;
+        const fo = offsetFrame(fm, (F) => add(mul(F.N, 1.36 * Math.cos(th)), mul(F.B, 1.36 * Math.sin(th))));
+        for (const [a, b] of [[-1.57, -1.25], [1.25, 1.57]]) turn(fo, [[a, 0.3], [b, 0.3]], 32, { cap0: true, cap1: true }, { scale: 0.5 });
+        turn(fo, [[-1.9, 0.1], [1.9, 0.1]], 20, { cap0: true, cap1: true }, { kind: "bolt", scale: 0.15, turned: false });
+        hex(fo, -1.79, -1.57, 0.2, th, { kind: "bolt" }); hex(fo, 1.57, 1.79, 0.2, th, { kind: "bolt" });
+      }
+      // stem assembly, straight up out of the body
+      const fs = lineFrame([xv, 0, 0], Y, Z);
+      turn(fs, [[1.0, 0.56], [1.62, 0.56]], 48);                                       // neck on the body
+      turn(fs, [[1.62, 0.84], [1.76, 0.84]], 48, { cap0: true, cap1: true });          // mounting / stop plate
+      for (const sx of [-1, 1]) hex(offsetFrame(fs, () => mul(X, 0.6 * sx)), 1.76, 1.9, 0.13, 0, { kind: "bolt", scale: 0.2 });
+      turn(fs, [[1.76, 0.34], [2.02, 0.34], [2.02, 0.22], [2.06, 0.22]], 32);          // gland
+      hex(fs, 2.18, 2.4, 0.34, Math.PI / 6);                                           // stem nut on top of the lever
+      turn(fs, [[2.4, 0.17], [2.49, 0.17], [2.53, 0.1]], 24, { cap1: true }, { scale: 0.3 });
+      // lever: flat bar off the stem, up at an angle, then the grip running out along the pipe (valve open).
+      // Away from the first riser, like the mock-up. Grip is plain steel here (no colour in the CAD view).
+      const lev = [[-0.52, 0], [0.62, 0], [2.0, 1.15], [4.5, 1.42]], lo = [xv, 2.12, 0], lx = [-1, 0, 0];
+      put(sweepBar(lo, lx, Y, Z, lev, 0.12, 0.7), { scale: 0.4 });
+      const d = norm([lev[3][0] - lev[2][0], lev[3][1] - lev[2][1], 0]), g0 = 0.45, gl = Math.hypot(lev[3][0] - lev[2][0], lev[3][1] - lev[2][1]) - g0 + 0.08;
+      put(sweepBar(lo, lx, Y, Z, [[lev[2][0] + d[0] * g0, lev[2][1] + d[1] * g0], [lev[2][0] + d[0] * (g0 + gl), lev[2][1] + d[1] * (g0 + gl)]], 0.3, 0.84), { scale: 0.5 });
+      // slot in the angled part of the lever (drawn on its top face)
+      {
+        const a = lev[1], b = lev[2], l = Math.hypot(b[0] - a[0], b[1] - a[1]), dx = (b[0] - a[0]) / l, dy = (b[1] - a[1]) / l;
+        const c2 = [(a[0] + b[0]) / 2 - dy * 0.062, (a[1] + b[1]) / 2 + dx * 0.062], pts = [], hl = 0.32, rr = 0.12;
+        for (let j = 0; j <= 40; j++) {
+          const an = 2 * Math.PI * j / 40, e = Math.cos(an) >= 0 ? hl : -hl;   // stadium: two half circles joined by straights
+          const u = e + rr * Math.cos(an), w = rr * Math.sin(an);
+          pts.push(add(lo, add(add(mul(lx, c2[0] + dx * u), mul(Y, c2[1] + dy * u)), mul(Z, w))));
+        }
+        rings.push(pts);
+      }
+    }
+
+    // ===== temperature sensor (thermowell + connection head) on top of the main pipe =====
+    {
+      const xs = ALT.sensorX, ft = lineFrame([xs, 0, 0], Y, Z);
+      turn(ft, [[0.9, 0.28], [1.08, 0.28], [1.08, 0.42], [1.2, 0.42], [1.24, 0.38]], 48, { cap1: true }, { scale: 0.5 });  // weld-on nozzle + flange
+      turn(ft, [[1.24, 0.17], [1.36, 0.17], [1.4, 0.1]], 24, null, { scale: 0.3 });                                         // boss under the probe
+      turn(ft, [[1.4, 0.1], [2.9, 0.1]], 24, null, { scale: 0.3 });                                                        // probe stem
+      hex(ft, 2.9, 3.12, 0.21, 0);                                                                                           // compression fitting
+      turn(ft, [[3.12, 0.14], [3.24, 0.14]], 24, null, { scale: 0.3 });
+      hex(ft, 3.24, 3.46, 0.26, Math.PI / 6);                                                                               // union nut
+      turn(ft, [[3.46, 0.2], [3.58, 0.2], [3.72, 0.36], [3.8, 0.36]], 48, null, { scale: 0.5 });                            // neck of the head
+      const head = [[3.8, 0.36], [3.94, 0.72], [4.48, 0.72], [4.48, 0.79], [4.58, 0.79], [4.58, 0.74], [4.78, 0.68], [4.91, 0.52], [4.96, 0.26]];
+      turn(ft, head, 64, { cap1: true });                                                                                    // head body, lid seam and lid
+      if (nLines > 0) profileLines(detail, ft, head, 12);
+      // cable entry: boss out of the side of the head, gland nut, open bore
+      const hc = [xs, 4.2, 0], fp = lineFrame(hc, [-0.82, 0, 0.57], Y);
+      turn(fp, [[0.5, 0.26], [1.06, 0.26]], 32, null, { scale: 0.5 });
+      hex(fp, 1.06, 1.26, 0.32, 0);
+      turn(fp, [[1.26, 0.22], [1.33, 0.22], [1.33, 0.16], [1.14, 0.16]], 32, { cap1: true }, { scale: 0.3 });
+      // lid hinge block and latch screw on the seam
+      for (const [dir, w] of [[norm([0.62, 0, -0.78]), 0.34], [norm([0.74, 0, 0.67]), 0.2]]) {
+        const tan = cross(Y, dir);
+        put(sweepBar(add([xs, 4.53, 0], mul(dir, 0.84)), dir, Y, tan, [[-0.1, 0], [0.1, 0]], 0.24, w), { scale: 0.3, kind: "bolt" });
+      }
+      hex(offsetFrame(ft, () => mul(norm([0.74, 0, 0.67]), 0.86)), 4.65, 4.72, 0.07, 0, { kind: "bolt", scale: 0.15 });
+    }
+  }
+
   function build(opts) {
     const { nLines = 24, ringGap = 1.5, nBolts = 8, seg = 96, nutDetail = true } = opts;
-    const pipes = pipesFromNet();
+    const alt = !!opts.alt;
+    const pipes = pipesFromNet(alt);
     const parts = [], detail = [], rings = [], saddles = [], highlights = {};
     // weld rings highlighted for each hover stop: [stop, pipe id, flange index, side (-1 upstream hub, +1 downstream hub)]
-    const HL = [[2, "main", 1, 1]];
+    const HL = [[2, "main", opts.alt ? 0 : 1, 1]];
 
     for (const P of pipes) {
       const { r, path } = P, D = FLD(r), Lp = path.length;
@@ -195,8 +358,11 @@ const G = (() => {
       const s0mesh = P.tee ? 0 : 0;
 
       // pipe pieces between flange pairs
+      // the pipe is left out under flange pairs and inside inline fittings (gaps)
+      const gaps = P.gaps || [];
+      const breaks = P.flanges.map((sc) => [sc - D.hub, sc + D.hub]).concat(gaps).sort((a, b) => a[0] - b[0]);
       const cuts = [s0mesh];
-      for (const sc of [...P.flanges].sort((a, b) => a - b)) cuts.push(sc - D.hub, sc + D.hub);
+      for (const [a, b] of breaks) cuts.push(a, b);
       cuts.push(Lp);
       for (let k = 0; k < cuts.length; k += 2) {
         const a = cuts[k], b = cuts[k + 1], prof = [[a, r]];
@@ -235,6 +401,7 @@ const G = (() => {
       const n = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, r / 0.9)) / 4) * 4);
       if (nLines > 0) {
         const radiusAt = (s) => {
+          for (const [a, b] of gaps) if (s > a + 1e-6 && s < b - 1e-6) return null;
           for (const sc of P.flanges) {
             const d = Math.abs(s - sc);
             if (d < D.face) return null;
@@ -248,6 +415,7 @@ const G = (() => {
         for (const [a, b] of path.arcs) for (let s = a; s <= b; s += 0.04) st.add(+s.toFixed(4));
         for (const sc of P.flanges) for (let s = sc - D.hub - 0.02; s <= sc + D.hub + 0.02; s += 0.04) st.add(+s.toFixed(4));
         for (const sc of P.flanges) { st.add(+(sc - D.face).toFixed(4)); st.add(+(sc + D.face).toFixed(4)); }
+        for (const [a, b] of gaps) { st.add(+a.toFixed(4)); st.add(+((a + b) / 2).toFixed(4)); st.add(+b.toFixed(4)); }
         st.add(+Lp.toFixed(4));
         const S = [...st].filter((s) => s >= 0 && s <= Lp).sort((a, b) => a - b);
         for (let k = 0; k < n; k++) {
@@ -280,7 +448,7 @@ const G = (() => {
 
       // cross-section rings
       if (ringGap > 0) {
-        const zones = P.flanges.map((sc) => [sc - D.hub - 0.2, sc + D.hub + 0.2]);
+        const zones = P.flanges.map((sc) => [sc - D.hub - 0.2, sc + D.hub + 0.2]).concat(gaps.map(([a, b]) => [a - 0.2, b + 0.2]));
         const step = ringGap * Math.max(0.7, r);
         const first = P.tee ? 1.6 : 0;
         for (let s = first + step; s < Lp - 0.2; s += step) {
@@ -314,9 +482,9 @@ const G = (() => {
     }
     // 03: the small elbow's flange joint: every ring of the flange pair plus the bolt outlines
     {
-      const P = pipes.find((q) => q.id === "C");
-      if (P && P.flanges.length) {
-        const r = P.r, D = FLD(r), sc = P.flanges[0], out = { rings: [], lines: [] }, k = 1.004;
+      const P = pipes.find((q) => q.id === (alt ? "B" : "C")), fi = alt ? 1 : 0;   // alt: no third riser, use the second elbow's flange
+      if (P && P.flanges.length > fi) {
+        const r = P.r, D = FLD(r), sc = P.flanges[fi], out = { rings: [], lines: [] }, k = 1.004;
         for (const [s, rr] of [[sc - D.hub, r * 1.015], [sc - D.face, D.RHUB], [sc - D.face, D.RF], [sc - D.gap, D.RF],
                                [sc - D.gap, D.RRAISE], [sc + D.gap, D.RF], [sc + D.face, D.RF], [sc + D.face, D.RHUB], [sc + D.hub, r * 1.015]])
           out.rings.push(ringAt(P, s, rr * k));
@@ -359,61 +527,7 @@ const G = (() => {
         highlights[1] = out;
       }
     }
-    // ---------- alt build: side-mounted ball valve on riser A (between its two flanges) ----------
-    // A small quarter-turn valve welded to the side of the riser on a boss: hex end pieces, ball
-    // housing, outlet plug, stem on top and a blue vinyl lever running out along the valve (open).
-    if (opts.valve) {
-      const P = pipes.find((q) => q.id === "A");
-      const r = P.r, [fl0, fl1] = [...P.flanges].sort((x, y) => x - y);
-      const sm = (fl0 + fl1) / 2, F = P.path.frame(sm), c = F.c, Y = [0, 1, 0];
-      const lineFrame = (c0, dir) => {
-        const ref = Math.abs(dir[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
-        const N = norm(cross(dir, ref)), B = cross(dir, N);
-        return (t) => ({ c: add(c0, mul(dir, t)), T: dir, N, B });
-      };
-      const u = norm([0.97, 0, -0.22]);                // out of the pipe wall, side-on to the viewer (pointing right)
-      const vf = lineFrame(c, u), R = (k) => k * r;
-      const part = (profile, M, extra, kind = "valve") =>
-        parts.push(buildEdges(Object.assign(lathe(Object.assign({ profile: profile.map(([t, q]) => [R(t), R(q)]), frameAt: vf, M }, extra || {})), { kind })));
-      part([[0.75, 0.62], [1.08, 0.62], [1.12, 0.57]], 64, { cap1: true });                        // weld boss on the pipe wall
-      part([[1.12, 0.4], [1.2, 0.4]], 48);                                                           // neck
-      part([[1.2, 0.5], [1.48, 0.5]], 6, { cap0: true, cap1: true, phase: Math.PI / 6 });           // inner hex end
-      part([[1.48, 0.43], [1.53, 0.47], [2.03, 0.47], [2.08, 0.43]], 64);                         // ball housing
-      part([[1.64, 0.53], [1.92, 0.53]], 8, { cap0: true, cap1: true, phase: Math.PI / 8 });        // body flats
-      part([[2.08, 0.5], [2.34, 0.5]], 6, { cap0: true, cap1: true, phase: Math.PI / 6 });          // outer hex end
-      part([[2.34, 0.36], [2.42, 0.36], [2.42, 0.3], [2.7, 0.3], [2.77, 0.22]], 48, { cap1: true }); // outlet plug
-      // stem straight up from the middle of the housing
-      const sc = add(c, mul(u, R(1.78))), sfr = lineFrame(sc, Y);
-      const spart = (profile, M, extra) =>
-        parts.push(buildEdges(Object.assign(lathe(Object.assign({ profile: profile.map(([t, q]) => [R(t), R(q)]), frameAt: sfr, M }, extra || {})), { kind: "valve" })));
-      spart([[0.45, 0.2], [0.6, 0.2]], 32);                                                          // stem collar
-      spart([[0.6, 0.3], [0.66, 0.3]], 32, { cap0: true, cap1: true });                             // stop plate
-      spart([[0.82, 0.19], [0.94, 0.19], [0.98, 0.14]], 6, { cap0: true, cap1: true });             // stem nut on top of the lever
-      // lever: flat bar, rises off the stem then runs out along the valve with a slight lift
-      const w = norm(cross(u, Y));
-      const bar = (p0, dir, len, width, thick) => {
-        const t = norm(cross(dir, w)), pts = [];
-        for (const a of [0, len]) for (const b of [-width / 2, width / 2]) for (const d of [-thick / 2, thick / 2])
-          pts.push(add(p0, add(mul(dir, a), add(mul(w, b), mul(t, d)))));
-        const q = (ia, ib, id) => ia * 4 + ib * 2 + id;
-        const faces = [
-          { v: [q(0, 0, 0), q(0, 1, 0), q(0, 1, 1), q(0, 0, 1)], n: mul(dir, -1) },
-          { v: [q(1, 0, 0), q(1, 0, 1), q(1, 1, 1), q(1, 1, 0)], n: dir },
-          { v: [q(0, 0, 0), q(0, 0, 1), q(1, 0, 1), q(1, 0, 0)], n: mul(w, -1) },
-          { v: [q(0, 1, 0), q(1, 1, 0), q(1, 1, 1), q(0, 1, 1)], n: w },
-          { v: [q(0, 0, 0), q(1, 0, 0), q(1, 1, 0), q(0, 1, 0)], n: mul(t, -1) },
-          { v: [q(0, 0, 1), q(0, 1, 1), q(1, 1, 1), q(1, 0, 1)], n: t },
-        ];
-        const vn = pts.map(() => [0, 0, 0]);
-        for (const f of faces) for (const i2 of f.v) vn[i2] = add(vn[i2], f.n);
-        parts.push(buildEdges({ pos: pts, faces, vn: vn.map(norm), grain: pts.map(() => [0, 0, 0]), M: 0, kind: "handle" }));
-      };
-      const base = add(sc, mul(Y, R(0.74)));                                                       // lever eye sits on the stem
-      const d1 = norm(add(mul(Y, 0.8), mul(u, 0.6))), p1 = add(base, mul(d1, R(0.42)));
-      const d2 = norm(add(u, mul(Y, 0.16)));
-      bar(add(base, mul(d1, R(-0.1))), d1, R(0.58), R(0.26), R(0.12));                            // riser of the lever
-      bar(add(p1, mul(d2, R(-0.08))), d2, R(1.5), R(0.26), R(0.15));                              // grip, out along the valve
-    }
+    if (alt) addOns({ parts, detail, rings, pipes, seg, nLines });
 
     return { parts, detail, rings, saddles, highlights };
   }
@@ -563,7 +677,7 @@ window.RivenPipesG = G;
   // Zoom controls drive the section's existing CSS zoom variables, so the highlight spots stay aligned.
   // [key, label, min, max, step, css variable, unit]
   var ZCTRL = [
-    ["restZoom", "Resting zoom", 1, 2.5, 0.05, "--zoom-s", ""],
+    ["restZoom", "Resting zoom", 0.5, 2.5, 0.05, "--zoom-s", ""],
     ["restX", "Resting focus X", 0, 1, 0.005, "--zoom-x", ""],
     ["restY", "Resting focus Y", 0, 1, 0.005, "--zoom-y", ""],
     ["zoom1", "Zoom 01 amount", 1, 6, 0.05, "--zoom-1-s", ""],
@@ -576,11 +690,26 @@ window.RivenPipesG = G;
   // built-in overrides of the section's CSS: 01 now centres on the top elbow it highlights
   var ZOOM_DEFAULTS = { restZoom: 1, restX: 0.585, restY: 0.475, zoom1X: 0.565, zoom1Y: 0.22, zoomTime: 1.75 };
   var attrName = function (k) { return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }); };
-  function readZoom(el) {
+  // Alt build (client add-ons: inline ball valve + temperature sensor, third riser removed).
+  // Preview with ?pipes-alt; make it live with data-pipe-variant="alt" on the zoom frame.
+  // It has its own framing: a setting comes from data-pipe-alt-<name> if present, then the alt
+  // default below, then the normal data-pipe-<name> attribute.
+  var isAlt = function (el) { return /[?&]pipes-alt\b/.test(location.search) || (!!el && el.getAttribute("data-pipe-variant") === "alt"); };
+  var ALT_DEFAULTS = { restZoom: 0.85, restX: 0.47, restY: 0.5,                       // wider, so the valve on the left is in view
+                       zoom3: 3.2, zoom3X: 0.596, zoom3Y: 0.366, cam3Turn: 0, cam3Tilt: 0, cam3Roll: 0 };   // 03 moves to the second elbow's flange
+  var altName = function (k) { return attrName(k).replace("data-pipe-", "data-pipe-alt-"); };
+  // attribute value for a setting (null if none). skipOwn: ignore the alt build's own attributes.
+  function attrOf(el, k, skipOwn) {
+    var a = el.getAttribute(attrName(k)); if (a === "") a = null;
+    if (!isAlt(el)) return a;
+    if (!skipOwn) { var own = el.getAttribute(altName(k)); if (own !== null && own !== "") return own; }
+    return ALT_DEFAULTS[k] != null ? String(ALT_DEFAULTS[k]) : a;
+  }
+  function readZoom(el, skipOwn) {
     var cs = getComputedStyle(el), Z = { set: {} };
     ZCTRL.forEach(function (c) {
-      var a = el.getAttribute(attrName(c[0]));
-      if (a !== null && a !== "") { Z[c[0]] = parseFloat(a); Z.set[c[0]] = true; }
+      var a = attrOf(el, c[0], skipOwn);
+      if (a !== null) { Z[c[0]] = parseFloat(a); Z.set[c[0]] = true; }
       else if (ZOOM_DEFAULTS[c[0]] != null) { Z[c[0]] = ZOOM_DEFAULTS[c[0]]; Z.set[c[0]] = true; }
       else {
         var v = parseFloat(cs.getPropertyValue(c[5]));
@@ -602,11 +731,11 @@ window.RivenPipesG = G;
       "calc(50cqw - var(--zoom-s,1) * var(--zoom-x,.5) * var(--zoom-w))," +
       "calc(50cqh - var(--zoom-s,1) * var(--zoom-y,.5) * var(--zoom-h))) scale(var(--zoom-s,1))}";
   }
-  function readLook(el) {
+  function readLook(el, skipOwn) {
     var L = Object.assign({}, DEFAULTS);
     Object.keys(DEFAULTS).forEach(function (k) {
-      var a = el.getAttribute("data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }));
-      if (a !== null && a !== "") L[k] = /color|mode|steel|variant/i.test(k) ? a : parseFloat(a);
+      var a = attrOf(el, k, skipOwn);
+      if (a !== null) L[k] = /color|mode|steel|variant/i.test(k) ? a : parseFloat(a);
     });
     return L;
   }
@@ -641,8 +770,7 @@ window.RivenPipesG = G;
     frame.dataset.pipes3d = "loading";
     var LOOK = readLook(frame);
     var q = location.search;
-    // alt build (client add-ons such as the ball valve): preview with ?pipes-alt, or data-pipe-variant="alt"
-    var ALT = /[?&]pipes-alt\b/.test(q) || LOOK.variant === "alt";
+    var ALT = isAlt(frame);
     var STEEL = /[?&]pipes-stainless\b/.test(q) || (LOOK.mode === "stainless" && !/[?&]pipes-lines\b/.test(q));
     var ZOOM = readZoom(frame); applyZoom(ZOOM);
     var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -669,7 +797,7 @@ window.RivenPipesG = G;
     var renderer;
     try {
       renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
-    } catch (e) { canvas.remove(); frame.dataset.pipes3d = "failed"; return; }
+    } catch (e) { canvas.remove(); frame.dataset.pipes3d = "failed"; if (img) img.style.opacity = ""; return; }
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     if (STEEL) {
@@ -680,7 +808,7 @@ window.RivenPipesG = G;
 
     var col = new THREE.Color(LOOK.color || getComputedStyle(frame).color || "#fff");
     var scene = new THREE.Scene();
-    var steelMat = null, steelObj = null, gripMat = null, gripObj = null;
+    var steelMat = null, steelObj = null;
     if (STEEL) {
       var pm = new THREE.PMREMGenerator(renderer);
       scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
@@ -723,9 +851,6 @@ window.RivenPipesG = G;
         color: new THREE.Color(LOOK.steel), metalness: LOOK.metalness, roughness: LOOK.roughness,
         envMapIntensity: LOOK.reflections, clearcoat: LOOK.coat, clearcoatRoughness: 0.08,
         transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
-      // the ball valve's lever grip: blue vinyl coating
-      gripMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color("#0d3fd6").convertSRGBToLinear(), metalness: 0, roughness: 0.5,
-        clearcoat: 0.25, clearcoatRoughness: 0.3, envMapIntensity: 0.25, transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
       // brushed / lathe-turned finish: fine streaks that tilt the reflection across the grain,
       // so highlights smear along it like real satin stainless
       var GU = { uGrain: { value: 0 }, uTurn: { value: 0 }, uSize: { value: 1 }, uWarm: { value: 0 } };
@@ -824,7 +949,6 @@ window.RivenPipesG = G;
       M.hidden.opacity = STEEL ? LOOK.xrayHidden * xa : LOOK.hidden;
       if (hidObj) hidObj.visible = M.hidden.opacity > 0.001;
       if (steelMat) { steelMat.opacity = 1 - (1 - LOOK.xray) * xa; steelMat.depthWrite = steelMat.opacity > 0.02; }
-      if (gripMat) { gripMat.opacity = steelMat.opacity; gripMat.depthWrite = steelMat.depthWrite; }
     }
     M.hidden.depthFunc = THREE.GreaterDepth;
 
@@ -842,7 +966,7 @@ window.RivenPipesG = G;
     var edgeObj = null, hidObj = null, lastEye = null;
     function drop(o) { if (o) { scene.remove(o); o.geometry.dispose(); } }
     function build() {
-      var model = G.build({ nLines: LOOK.lines, ringGap: LOOK.rings, nBolts: LOOK.bolts, seg: LOOK.smooth, nutDetail: true, valve: ALT });
+      var model = G.build({ nLines: LOOK.lines, ringGap: LOOK.rings, nBolts: LOOK.bolts, seg: LOOK.smooth, nutDetail: true, alt: ALT });
       var mesh = G.meshArrays(model.parts);
       var geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(mesh.pos, 3));
@@ -866,13 +990,7 @@ window.RivenPipesG = G;
       occ = new THREE.Mesh(geo, occMat); occ.renderOrder = 0; scene.add(occ);
       if (STEEL) {
         if (steelObj) { scene.remove(steelObj); steelObj.geometry.dispose(); }
-        if (gripObj) { scene.remove(gripObj); gripObj.geometry.dispose(); gripObj = null; }
-        var grips = model.parts.filter(function (p) { return p.kind === "handle"; });
-        if (grips.length) {
-          gripObj = new THREE.Mesh(shadedGeometry(grips), gripMat);
-          gripObj.renderOrder = 0.5; gripObj.frustumCulled = false; scene.add(gripObj);
-        }
-        steelObj = new THREE.Mesh(shadedGeometry(model.parts.filter(function (p) { return p.kind !== "handle"; })), steelMat);
+        steelObj = new THREE.Mesh(shadedGeometry(model.parts), steelMat);
         steelObj.renderOrder = 0.5; steelObj.frustumCulled = false; scene.add(steelObj);
       }
       var saddle = G.polylinesToSegments(model.saddles);
@@ -892,7 +1010,7 @@ window.RivenPipesG = G;
       parts.forEach(function (p) {
         var adj = p.pos.map(function () { return []; });
         p.faces.forEach(function (f, fi) { f.v.forEach(function (v) { adj[v].push(fi); }); });
-        var kind = p.kind === "pipe" ? 0 : p.kind === "flange" ? 1 : 2;
+        var kind = p.kind === "pipe" ? 0 : (p.kind === "flange" || p.turned) ? 1 : 2;   // 0 brushed, 1 lathe-turned, 2 plain
         p.faces.forEach(function (f) {
           // across-grain direction for this face: around the pipe for brushed pipe,
           // along the profile (radial on faces) for turned flanges
@@ -1075,7 +1193,7 @@ window.RivenPipesG = G;
     applyLook();
     frameLoop(performance.now());
     if (STEEL) setTimeout(reveal, 5000); else requestAnimationFrame(reveal);
-    if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, STEEL, function (k) {
+    if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, STEEL, ALT, function (k) {
       if (REBUILD[k]) { clearTimeout(tunePanel.t); tunePanel.t = setTimeout(function () { build(); wake(); }, 150); }
       applyLook(); lastEye = null; wake();
     });
@@ -1089,7 +1207,7 @@ window.RivenPipesG = G;
   }
 
   // Live tuning panel: add ?pipes-tune to the page URL. Copies values as Bricks attributes.
-  function tunePanel(frame, LOOK, ZOOM, wake, STEEL, changed) {
+  function tunePanel(frame, LOOK, ZOOM, wake, STEEL, ALT, changed) {
     var box = document.createElement("div");
     box.style.cssText = "position:fixed;right:16px;top:16px;bottom:16px;z-index:99999;width:260px;overflow-y:auto;" +
       "overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;" +
@@ -1099,7 +1217,7 @@ window.RivenPipesG = G;
     ["wheel", "touchmove"].forEach(function (ev) { box.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true }); });
     var hd = "display:block;margin:10px 0 4px;color:#9fd0e6;text-transform:uppercase;letter-spacing:.08em;font-size:11px";
     var btn = "flex:1;padding:4px 0;background:#222;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer";
-    var html = "<b style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'>Pipe linework" +
+    var html = "<b style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'>Pipe linework" + (ALT ? " (alt)" : "") +
       "<button type='button' data-min style='" + btn + ";flex:none;padding:2px 8px'>Hide</button></b><div data-body><span style='" + hd + "'>Zoom</span>" +
       "<div style='display:flex;gap:4px;margin-bottom:4px'>Preview:" +
       ["Rest", "01", "02", "03"].map(function (t, i) { return "<button type='button' data-pv='" + i + "' style='" + btn + "'>" + t + "</button>"; }).join("") + "</div>";
@@ -1129,7 +1247,17 @@ window.RivenPipesG = G;
       "<textarea readonly style='margin-top:8px;width:100%;height:110px;background:#000;color:#9fd0e6;border:1px solid #333'></textarea></div>";
     box.innerHTML = html; document.body.appendChild(box);
     var ta = box.querySelector("textarea");
+    // alt build: its settings are saved under their own names (data-pipe-alt-...), and only the ones
+    // that differ from what it would use anyway, so the main version's attributes are never touched
+    var ZI = ALT ? readZoom(frame, true) : null, LI = ALT ? readLook(frame, true) : null;
     function dump() {
+      if (ALT) {
+        var az = ZCTRL.filter(function (c) { return ZOOM[c[0]] !== ZI[c[0]]; }).map(function (c) { return altName(c[0]) + " = " + ZOOM[c[0]]; });
+        var al = Object.keys(DEFAULTS).filter(function (k) { return !/^(color|mode|steel|highlightColor|variant)$/.test(k) && LOOK[k] !== LI[k]; })
+          .map(function (k) { return altName(k) + " = " + LOOK[k]; });
+        ta.value = az.concat(al).join("\n") || "(alt version: nothing changed yet)";
+        return;
+      }
       var z = ZCTRL.filter(function (c) { return ZOOM.set[c[0]] && ZOOM[c[0]] !== ZOOM_DEFAULTS[c[0]]; }).map(function (c) { return attrName(c[0]) + " = " + ZOOM[c[0]]; });
       var l = Object.keys(DEFAULTS).filter(function (k) { return !/^(color|mode|steel|highlightColor)$/.test(k) && LOOK[k] !== DEFAULTS[k]; }).map(function (k) {
         return attrName(k) + " = " + LOOK[k];
@@ -1311,7 +1439,12 @@ window.RivenPipesG = G;
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
     // the page image is a still of the 3D view, so it uses the same framing from the start
     // (no jump when the 3D takes over)
-    frames.forEach(function (f) { if (!f.dataset.pipes3d) { f.dataset.pipes3d = "pending"; applyZoom(readZoom(f)); } });
+    frames.forEach(function (f) {
+      if (f.dataset.pipes3d) return;
+      f.dataset.pipes3d = "pending"; applyZoom(readZoom(f));
+      // the alt build has no still of its own yet: keep the old one (without the new parts) out of sight
+      if (isAlt(f)) { var im = f.querySelector(".zoom-img"); if (im) im.style.opacity = "0"; }
+    });
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
         (!/[?&]pipes-lines\b/.test(location.search) && Array.prototype.some.call(frames, function (f) { return (f.getAttribute("data-pipe-mode") || DEFAULTS.mode) === "stainless"; }));
@@ -1323,7 +1456,10 @@ window.RivenPipesG = G;
       loadDeps(needSteel ? ["examples/js/environments/RoomEnvironment.js", "examples/js/loaders/RGBELoader.js"] : null).then(function () {
         if (!THREE.LineSegments2) return;
         frames.forEach(function (f) { try { mount(f); } catch (e) { console.warn("pipes3d", e); } });
-      }).catch(function (e) { console.warn("pipes3d", e); });
+      }).catch(function (e) {
+        console.warn("pipes3d", e);
+        frames.forEach(function (f) { var im = f.querySelector(".zoom-img"); if (im) im.style.opacity = ""; });
+      });
     };
     // start loading when the section approaches the viewport
     if ("IntersectionObserver" in window) {

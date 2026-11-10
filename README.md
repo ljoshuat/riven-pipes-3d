@@ -99,3 +99,26 @@ At rest the pipe renders as polished stainless steel; hovering a stop (or the dr
 | data-pipe-grain-warmth | 0 | Warm satin tint |
 | data-pipe-coat | 0.3 | Glossy clear layer on top |
 | data-pipe-shine | 1 | Hot highlights: lower tames the brightest reflected lights and the key light |
+
+## Alt version (valve + temperature sensor)
+
+A second build of the pipe for the client's add-ons, matching their mock-up:
+
+- a 3-piece ball valve inline on the main pipe, left of the first riser (lever in plain steel, no colour);
+- a temperature sensor (thermowell + connection head) on top of the main pipe, where the third riser was;
+- the two down pipes sit directly under the two risers; the far-left flange pair is dropped.
+
+Preview it for yourself only by adding `?pipes-alt` to the page URL (`&pipes-tune` for the controls).
+To make it live for everyone, add `data-pipe-variant = alt` to the Div with the other attributes.
+
+The alt version keeps its own framing. A setting is read from `data-pipe-alt-<name>` first, then the
+built-in alt default, then the normal `data-pipe-<name>` attribute. In the tune panel, "Copy as Bricks
+attributes" gives `data-pipe-alt-...` lines, so the main version's attributes are never changed.
+
+| Alt default | Value | Why |
+|---|---|---|
+| rest-zoom / rest-x / rest-y | 0.85 / 0.47 / 0.5 | wider view so the valve on the left is in frame |
+| zoom3 / zoom3-x / zoom3-y | 3.2 / 0.596 / 0.366 | stop 03 moves to the second elbow's flange (the third riser is gone) |
+| cam3-turn / tilt / roll | 0 | camera angle for the moved stop 03 |
+
+The loading still (`docs/riven-pipe-rest.webp`) shows the main version, so the alt hides it while the 3D loads.

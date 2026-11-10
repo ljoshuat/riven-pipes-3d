@@ -54,7 +54,7 @@
   // Zoom controls drive the section's existing CSS zoom variables, so the highlight spots stay aligned.
   // [key, label, min, max, step, css variable, unit]
   var ZCTRL = [
-    ["restZoom", "Resting zoom", 1, 2.5, 0.05, "--zoom-s", ""],
+    ["restZoom", "Resting zoom", 0.5, 2.5, 0.05, "--zoom-s", ""],
     ["restX", "Resting focus X", 0, 1, 0.005, "--zoom-x", ""],
     ["restY", "Resting focus Y", 0, 1, 0.005, "--zoom-y", ""],
     ["zoom1", "Zoom 01 amount", 1, 6, 0.05, "--zoom-1-s", ""],
@@ -67,11 +67,26 @@
   // built-in overrides of the section's CSS: 01 now centres on the top elbow it highlights
   var ZOOM_DEFAULTS = { restZoom: 1, restX: 0.585, restY: 0.475, zoom1X: 0.565, zoom1Y: 0.22, zoomTime: 1.75 };
   var attrName = function (k) { return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }); };
-  function readZoom(el) {
+  // Alt build (client add-ons: inline ball valve + temperature sensor, third riser removed).
+  // Preview with ?pipes-alt; make it live with data-pipe-variant="alt" on the zoom frame.
+  // It has its own framing: a setting comes from data-pipe-alt-<name> if present, then the alt
+  // default below, then the normal data-pipe-<name> attribute.
+  var isAlt = function (el) { return /[?&]pipes-alt\b/.test(location.search) || (!!el && el.getAttribute("data-pipe-variant") === "alt"); };
+  var ALT_DEFAULTS = { restZoom: 0.85, restX: 0.47, restY: 0.5,                       // wider, so the valve on the left is in view
+                       zoom3: 3.2, zoom3X: 0.596, zoom3Y: 0.366, cam3Turn: 0, cam3Tilt: 0, cam3Roll: 0 };   // 03 moves to the second elbow's flange
+  var altName = function (k) { return attrName(k).replace("data-pipe-", "data-pipe-alt-"); };
+  // attribute value for a setting (null if none). skipOwn: ignore the alt build's own attributes.
+  function attrOf(el, k, skipOwn) {
+    var a = el.getAttribute(attrName(k)); if (a === "") a = null;
+    if (!isAlt(el)) return a;
+    if (!skipOwn) { var own = el.getAttribute(altName(k)); if (own !== null && own !== "") return own; }
+    return ALT_DEFAULTS[k] != null ? String(ALT_DEFAULTS[k]) : a;
+  }
+  function readZoom(el, skipOwn) {
     var cs = getComputedStyle(el), Z = { set: {} };
     ZCTRL.forEach(function (c) {
-      var a = el.getAttribute(attrName(c[0]));
-      if (a !== null && a !== "") { Z[c[0]] = parseFloat(a); Z.set[c[0]] = true; }
+      var a = attrOf(el, c[0], skipOwn);
+      if (a !== null) { Z[c[0]] = parseFloat(a); Z.set[c[0]] = true; }
       else if (ZOOM_DEFAULTS[c[0]] != null) { Z[c[0]] = ZOOM_DEFAULTS[c[0]]; Z.set[c[0]] = true; }
       else {
         var v = parseFloat(cs.getPropertyValue(c[5]));
@@ -93,11 +108,11 @@
       "calc(50cqw - var(--zoom-s,1) * var(--zoom-x,.5) * var(--zoom-w))," +
       "calc(50cqh - var(--zoom-s,1) * var(--zoom-y,.5) * var(--zoom-h))) scale(var(--zoom-s,1))}";
   }
-  function readLook(el) {
+  function readLook(el, skipOwn) {
     var L = Object.assign({}, DEFAULTS);
     Object.keys(DEFAULTS).forEach(function (k) {
-      var a = el.getAttribute("data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }));
-      if (a !== null && a !== "") L[k] = /color|mode|steel|variant/i.test(k) ? a : parseFloat(a);
+      var a = attrOf(el, k, skipOwn);
+      if (a !== null) L[k] = /color|mode|steel|variant/i.test(k) ? a : parseFloat(a);
     });
     return L;
   }
@@ -132,8 +147,7 @@
     frame.dataset.pipes3d = "loading";
     var LOOK = readLook(frame);
     var q = location.search;
-    // alt build (client add-ons such as the ball valve): preview with ?pipes-alt, or data-pipe-variant="alt"
-    var ALT = /[?&]pipes-alt\b/.test(q) || LOOK.variant === "alt";
+    var ALT = isAlt(frame);
     var STEEL = /[?&]pipes-stainless\b/.test(q) || (LOOK.mode === "stainless" && !/[?&]pipes-lines\b/.test(q));
     var ZOOM = readZoom(frame); applyZoom(ZOOM);
     var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -160,7 +174,7 @@
     var renderer;
     try {
       renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
-    } catch (e) { canvas.remove(); frame.dataset.pipes3d = "failed"; return; }
+    } catch (e) { canvas.remove(); frame.dataset.pipes3d = "failed"; if (img) img.style.opacity = ""; return; }
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     if (STEEL) {
@@ -171,7 +185,7 @@
 
     var col = new THREE.Color(LOOK.color || getComputedStyle(frame).color || "#fff");
     var scene = new THREE.Scene();
-    var steelMat = null, steelObj = null, gripMat = null, gripObj = null;
+    var steelMat = null, steelObj = null;
     if (STEEL) {
       var pm = new THREE.PMREMGenerator(renderer);
       scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
@@ -214,9 +228,6 @@
         color: new THREE.Color(LOOK.steel), metalness: LOOK.metalness, roughness: LOOK.roughness,
         envMapIntensity: LOOK.reflections, clearcoat: LOOK.coat, clearcoatRoughness: 0.08,
         transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
-      // the ball valve's lever grip: blue vinyl coating
-      gripMat = new THREE.MeshPhysicalMaterial({ color: new THREE.Color("#0d3fd6").convertSRGBToLinear(), metalness: 0, roughness: 0.5,
-        clearcoat: 0.25, clearcoatRoughness: 0.3, envMapIntensity: 0.25, transparent: true, opacity: 1, depthWrite: true, side: THREE.DoubleSide });
       // brushed / lathe-turned finish: fine streaks that tilt the reflection across the grain,
       // so highlights smear along it like real satin stainless
       var GU = { uGrain: { value: 0 }, uTurn: { value: 0 }, uSize: { value: 1 }, uWarm: { value: 0 } };
@@ -315,7 +326,6 @@
       M.hidden.opacity = STEEL ? LOOK.xrayHidden * xa : LOOK.hidden;
       if (hidObj) hidObj.visible = M.hidden.opacity > 0.001;
       if (steelMat) { steelMat.opacity = 1 - (1 - LOOK.xray) * xa; steelMat.depthWrite = steelMat.opacity > 0.02; }
-      if (gripMat) { gripMat.opacity = steelMat.opacity; gripMat.depthWrite = steelMat.depthWrite; }
     }
     M.hidden.depthFunc = THREE.GreaterDepth;
 
@@ -333,7 +343,7 @@
     var edgeObj = null, hidObj = null, lastEye = null;
     function drop(o) { if (o) { scene.remove(o); o.geometry.dispose(); } }
     function build() {
-      var model = G.build({ nLines: LOOK.lines, ringGap: LOOK.rings, nBolts: LOOK.bolts, seg: LOOK.smooth, nutDetail: true, valve: ALT });
+      var model = G.build({ nLines: LOOK.lines, ringGap: LOOK.rings, nBolts: LOOK.bolts, seg: LOOK.smooth, nutDetail: true, alt: ALT });
       var mesh = G.meshArrays(model.parts);
       var geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(mesh.pos, 3));
@@ -357,13 +367,7 @@
       occ = new THREE.Mesh(geo, occMat); occ.renderOrder = 0; scene.add(occ);
       if (STEEL) {
         if (steelObj) { scene.remove(steelObj); steelObj.geometry.dispose(); }
-        if (gripObj) { scene.remove(gripObj); gripObj.geometry.dispose(); gripObj = null; }
-        var grips = model.parts.filter(function (p) { return p.kind === "handle"; });
-        if (grips.length) {
-          gripObj = new THREE.Mesh(shadedGeometry(grips), gripMat);
-          gripObj.renderOrder = 0.5; gripObj.frustumCulled = false; scene.add(gripObj);
-        }
-        steelObj = new THREE.Mesh(shadedGeometry(model.parts.filter(function (p) { return p.kind !== "handle"; })), steelMat);
+        steelObj = new THREE.Mesh(shadedGeometry(model.parts), steelMat);
         steelObj.renderOrder = 0.5; steelObj.frustumCulled = false; scene.add(steelObj);
       }
       var saddle = G.polylinesToSegments(model.saddles);
@@ -383,7 +387,7 @@
       parts.forEach(function (p) {
         var adj = p.pos.map(function () { return []; });
         p.faces.forEach(function (f, fi) { f.v.forEach(function (v) { adj[v].push(fi); }); });
-        var kind = p.kind === "pipe" ? 0 : p.kind === "flange" ? 1 : 2;
+        var kind = p.kind === "pipe" ? 0 : (p.kind === "flange" || p.turned) ? 1 : 2;   // 0 brushed, 1 lathe-turned, 2 plain
         p.faces.forEach(function (f) {
           // across-grain direction for this face: around the pipe for brushed pipe,
           // along the profile (radial on faces) for turned flanges
@@ -566,7 +570,7 @@
     applyLook();
     frameLoop(performance.now());
     if (STEEL) setTimeout(reveal, 5000); else requestAnimationFrame(reveal);
-    if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, STEEL, function (k) {
+    if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, STEEL, ALT, function (k) {
       if (REBUILD[k]) { clearTimeout(tunePanel.t); tunePanel.t = setTimeout(function () { build(); wake(); }, 150); }
       applyLook(); lastEye = null; wake();
     });
@@ -580,7 +584,7 @@
   }
 
   // Live tuning panel: add ?pipes-tune to the page URL. Copies values as Bricks attributes.
-  function tunePanel(frame, LOOK, ZOOM, wake, STEEL, changed) {
+  function tunePanel(frame, LOOK, ZOOM, wake, STEEL, ALT, changed) {
     var box = document.createElement("div");
     box.style.cssText = "position:fixed;right:16px;top:16px;bottom:16px;z-index:99999;width:260px;overflow-y:auto;" +
       "overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;" +
@@ -590,7 +594,7 @@
     ["wheel", "touchmove"].forEach(function (ev) { box.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true }); });
     var hd = "display:block;margin:10px 0 4px;color:#9fd0e6;text-transform:uppercase;letter-spacing:.08em;font-size:11px";
     var btn = "flex:1;padding:4px 0;background:#222;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer";
-    var html = "<b style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'>Pipe linework" +
+    var html = "<b style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'>Pipe linework" + (ALT ? " (alt)" : "") +
       "<button type='button' data-min style='" + btn + ";flex:none;padding:2px 8px'>Hide</button></b><div data-body><span style='" + hd + "'>Zoom</span>" +
       "<div style='display:flex;gap:4px;margin-bottom:4px'>Preview:" +
       ["Rest", "01", "02", "03"].map(function (t, i) { return "<button type='button' data-pv='" + i + "' style='" + btn + "'>" + t + "</button>"; }).join("") + "</div>";
@@ -620,7 +624,17 @@
       "<textarea readonly style='margin-top:8px;width:100%;height:110px;background:#000;color:#9fd0e6;border:1px solid #333'></textarea></div>";
     box.innerHTML = html; document.body.appendChild(box);
     var ta = box.querySelector("textarea");
+    // alt build: its settings are saved under their own names (data-pipe-alt-...), and only the ones
+    // that differ from what it would use anyway, so the main version's attributes are never touched
+    var ZI = ALT ? readZoom(frame, true) : null, LI = ALT ? readLook(frame, true) : null;
     function dump() {
+      if (ALT) {
+        var az = ZCTRL.filter(function (c) { return ZOOM[c[0]] !== ZI[c[0]]; }).map(function (c) { return altName(c[0]) + " = " + ZOOM[c[0]]; });
+        var al = Object.keys(DEFAULTS).filter(function (k) { return !/^(color|mode|steel|highlightColor|variant)$/.test(k) && LOOK[k] !== LI[k]; })
+          .map(function (k) { return altName(k) + " = " + LOOK[k]; });
+        ta.value = az.concat(al).join("\n") || "(alt version: nothing changed yet)";
+        return;
+      }
       var z = ZCTRL.filter(function (c) { return ZOOM.set[c[0]] && ZOOM[c[0]] !== ZOOM_DEFAULTS[c[0]]; }).map(function (c) { return attrName(c[0]) + " = " + ZOOM[c[0]]; });
       var l = Object.keys(DEFAULTS).filter(function (k) { return !/^(color|mode|steel|highlightColor)$/.test(k) && LOOK[k] !== DEFAULTS[k]; }).map(function (k) {
         return attrName(k) + " = " + LOOK[k];
@@ -802,7 +816,12 @@
     try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
     // the page image is a still of the 3D view, so it uses the same framing from the start
     // (no jump when the 3D takes over)
-    frames.forEach(function (f) { if (!f.dataset.pipes3d) { f.dataset.pipes3d = "pending"; applyZoom(readZoom(f)); } });
+    frames.forEach(function (f) {
+      if (f.dataset.pipes3d) return;
+      f.dataset.pipes3d = "pending"; applyZoom(readZoom(f));
+      // the alt build has no still of its own yet: keep the old one (without the new parts) out of sight
+      if (isAlt(f)) { var im = f.querySelector(".zoom-img"); if (im) im.style.opacity = "0"; }
+    });
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||
         (!/[?&]pipes-lines\b/.test(location.search) && Array.prototype.some.call(frames, function (f) { return (f.getAttribute("data-pipe-mode") || DEFAULTS.mode) === "stainless"; }));
@@ -814,7 +833,10 @@
       loadDeps(needSteel ? ["examples/js/environments/RoomEnvironment.js", "examples/js/loaders/RGBELoader.js"] : null).then(function () {
         if (!THREE.LineSegments2) return;
         frames.forEach(function (f) { try { mount(f); } catch (e) { console.warn("pipes3d", e); } });
-      }).catch(function (e) { console.warn("pipes3d", e); });
+      }).catch(function (e) {
+        console.warn("pipes3d", e);
+        frames.forEach(function (f) { var im = f.querySelector(".zoom-img"); if (im) im.style.opacity = ""; });
+      });
     };
     // start loading when the section approaches the viewport
     if ("IntersectionObserver" in window) {
