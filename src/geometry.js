@@ -497,11 +497,13 @@ const G = (() => {
                                 ringAt(P, P.flanges[fi] + side * (D.hub + 0.12 * P.r), P.r * 1.012)], lines: [] };
     }
     // a whole flange joint: every ring of the flange pair plus the bolt outlines
-    const flangeHL = (P, fi) => {
+    // plain: only the rings of the two flange discs (no weld rings where the hubs meet the pipe, no bolts)
+    const flangeHL = (P, fi, plain) => {
       const r = P.r, D = FLD(r), sc = P.flanges[fi], out = { rings: [], lines: [] }, k = 1.004;
-      for (const [s, rr] of [[sc - D.hub, r * 1.015], [sc - D.face, D.RHUB], [sc - D.face, D.RF], [sc - D.gap, D.RF],
-                             [sc - D.gap, D.RRAISE], [sc + D.gap, D.RF], [sc + D.face, D.RF], [sc + D.face, D.RHUB], [sc + D.hub, r * 1.015]])
-        out.rings.push(ringAt(P, s, rr * k));
+      for (const [s, rr, weld] of [[sc - D.hub, r * 1.015, 1], [sc - D.face, D.RHUB], [sc - D.face, D.RF], [sc - D.gap, D.RF],
+                             [sc - D.gap, D.RRAISE], [sc + D.gap, D.RF], [sc + D.face, D.RF], [sc + D.face, D.RHUB], [sc + D.hub, r * 1.015, 1]])
+        if (!(plain && weld)) out.rings.push(ringAt(P, s, rr * k));
+      if (plain) return out;
       const F = P.path.frame(sc), nr = 0.27 * r * k, nh = 0.3 * r;
       for (let i = 0; i < nBolts; i++) {
         const th = 2 * Math.PI * (i + 0.5) / nBolts;
@@ -517,13 +519,22 @@ const G = (() => {
       return out;
     };
     // an elbow: rings across the bend plus the long lines through it
+    // The whole elbow piece: the bend plus the straight ends, out to where each end meets its flange hub.
     const elbowHL = (P) => {
-      const [a0, a1] = P.path.arcs[0], rr = P.r * 1.006, out = { rings: [], lines: [] };
+      const [a0, a1] = P.path.arcs[0], D = FLD(P.r), rr = P.r * 1.006, out = { rings: [], lines: [] };
+      const before = P.flanges.filter((sc) => sc < a0), after = P.flanges.filter((sc) => sc > a1);
+      const s0 = before.length ? Math.max(...before) + D.hub : a0, s1 = after.length ? Math.min(...after) - D.hub : a1;
       for (let i = 0; i <= 6; i++) out.rings.push(ringAt(P, a0 + (a1 - a0) * i / 6, rr));
+      // a ring closing each straight end, just clear of the hub
+      if (s0 < a0 - 0.05) out.rings.push(ringAt(P, s0 + 0.02, rr));
+      if (s1 > a1 + 0.05) out.rings.push(ringAt(P, s1 - 0.02, rr));
+      const st = [s0];
+      for (let j = 0; j <= 48; j++) st.push(a0 + (a1 - a0) * j / 48);
+      st.push(s1);
       const nl = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, P.r / 0.9)) / 4) * 4);
       for (let k = 0; k < nl; k++) {
         const th = 2 * Math.PI * k / nl + Math.PI / nl, L = [];
-        for (let j = 0; j <= 48; j++) { const F = P.path.frame(a0 + (a1 - a0) * j / 48); L.push(add(F.c, add(mul(F.N, rr * Math.cos(th)), mul(F.B, rr * Math.sin(th))))); }
+        for (const s of st) { const F = P.path.frame(s); L.push(add(F.c, add(mul(F.N, rr * Math.cos(th)), mul(F.B, rr * Math.sin(th))))); }
         out.lines.push(L);
       }
       return out;
@@ -564,7 +575,7 @@ const G = (() => {
       const main = pipes.find((q) => q.id === "main"), A = pipes.find((q) => q.id === "A");
       highlights[2] = add2.valve;
       highlights[3] = elbowHL(A);
-      highlights[4] = flangeHL(main, 0);
+      highlights[4] = flangeHL(main, 0, true);
       highlights[5] = add2.sensor;
     }
 
