@@ -34,9 +34,12 @@
     ["xray", "X-ray steel opacity", 0, 1, 0.02], ["restLines", "Lines at rest", 0, 1, 0.02],
     ["xrayHidden", "X-ray hidden lines", 0, 1, 0.02], ["xraySpeed", "X-ray fade s", 0.1, 2, 0.05],
     ["xrayOnHover", "X-ray on drawing hover (0/1)", 0, 1, 1]];
-  // camera angle per zoom position (0 = rest, 1-3 = hover stops), in degrees
+  // hover rows the drawing can react to (01 .. 05)
+  var NSTOP = 5, STOPS = [];
+  for (var sn = 1; sn <= NSTOP; sn++) STOPS.push(sn);
+  // camera angle per zoom position (0 = rest, then the hover stops), in degrees
   var CAMCTRL = [];
-  [0, 1, 2, 3].forEach(function (n) {
+  [0].concat(STOPS).forEach(function (n) {
     var nm = n ? "0" + n : "Rest";
     [["Turn", "turn left/right", 40], ["Tilt", "tilt up/down", 30], ["Roll", "level / roll", 30]].forEach(function (a) {
       DEFAULTS["cam" + n + a[0]] = 0;
@@ -57,13 +60,17 @@
     ["restZoom", "Resting zoom", 0.5, 2.5, 0.05, "--zoom-s", ""],
     ["restX", "Resting focus X", 0, 1, 0.005, "--zoom-x", ""],
     ["restY", "Resting focus Y", 0, 1, 0.005, "--zoom-y", ""],
-    ["zoom1", "Zoom 01 amount", 1, 6, 0.05, "--zoom-1-s", ""],
-    ["zoom2", "Zoom 02 amount", 1, 6, 0.05, "--zoom-2-s", ""],
-    ["zoom3", "Zoom 03 amount", 1, 6, 0.05, "--zoom-3-s", ""],
-    ["zoom1X", "Zoom 01 focus X", 0, 1, 0.005, "--zoom-1-x", ""], ["zoom1Y", "Zoom 01 focus Y", 0, 1, 0.005, "--zoom-1-y", ""],
-    ["zoom2X", "Zoom 02 focus X", 0, 1, 0.005, "--zoom-2-x", ""], ["zoom2Y", "Zoom 02 focus Y", 0, 1, 0.005, "--zoom-2-y", ""],
-    ["zoom3X", "Zoom 03 focus X", 0, 1, 0.005, "--zoom-3-x", ""], ["zoom3Y", "Zoom 03 focus Y", 0, 1, 0.005, "--zoom-3-y", ""],
     ["zoomTime", "Zoom duration s", 0.2, 2.5, 0.05, "--zoom-duration", "s"]];
+  // amount and focus for each hover stop, inserted before the duration
+  (function () {
+    var amt = [], foc = [];
+    STOPS.forEach(function (n) {
+      amt.push(["zoom" + n, "Zoom 0" + n + " amount", 1, 6, 0.05, "--zoom-" + n + "-s", ""]);
+      foc.push(["zoom" + n + "X", "Zoom 0" + n + " focus X", 0, 1, 0.005, "--zoom-" + n + "-x", ""],
+               ["zoom" + n + "Y", "Zoom 0" + n + " focus Y", 0, 1, 0.005, "--zoom-" + n + "-y", ""]);
+    });
+    ZCTRL = ZCTRL.slice(0, 3).concat(amt, foc, ZCTRL.slice(3));
+  })();
   // built-in overrides of the section's CSS: 01 now centres on the top elbow it highlights
   var ZOOM_DEFAULTS = { restZoom: 1, restX: 0.585, restY: 0.475, zoom1X: 0.565, zoom1Y: 0.22, zoomTime: 1.75 };
   var attrName = function (k) { return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }); };
@@ -72,8 +79,13 @@
   // It has its own framing: a setting comes from data-pipe-alt-<name> if present, then the alt
   // default below, then the normal data-pipe-<name> attribute.
   var isAlt = function (el) { return /[?&]pipes-alt\b/.test(location.search) || (!!el && el.getAttribute("data-pipe-variant") === "alt"); };
+  // Its five hover rows: 01 the long top pipe (uses the main version's 01 settings), 02 the valve,
+  // 03 the top elbow, 04 the flange joint on the main pipe, 05 the temperature sensor.
   var ALT_DEFAULTS = { restZoom: 0.85, restX: 0.47, restY: 0.5,                       // wider, so the valve on the left is in view
-                       zoom3: 3.2, zoom3X: 0.596, zoom3Y: 0.366, cam3Turn: 0, cam3Tilt: 0, cam3Roll: 0 };   // 03 moves to the second elbow's flange
+                       zoom2: 2.6, zoom2X: 0.193, zoom2Y: 0.605, cam2Turn: 0, cam2Tilt: 0, cam2Roll: 0,
+                       zoom3: 3, zoom3X: 0.362, zoom3Y: 0.095, cam3Turn: 0, cam3Tilt: 0, cam3Roll: 0,
+                       zoom4: 2.8, zoom4X: 0.453, zoom4Y: 0.682, cam4Turn: 0, cam4Tilt: 0, cam4Roll: 0,
+                       zoom5: 3, zoom5X: 0.75, zoom5Y: 0.55, cam5Turn: 0, cam5Tilt: 0, cam5Roll: 0 };
   var altName = function (k) { return attrName(k).replace("data-pipe-", "data-pipe-alt-"); };
   // attribute value for a setting (null if none). skipOwn: ignore the alt build's own attributes.
   function attrOf(el, k, skipOwn) {
@@ -90,7 +102,7 @@
       else if (ZOOM_DEFAULTS[c[0]] != null) { Z[c[0]] = ZOOM_DEFAULTS[c[0]]; Z.set[c[0]] = true; }
       else {
         var v = parseFloat(cs.getPropertyValue(c[5]));
-        Z[c[0]] = isNaN(v) ? (c[0] === "restZoom" ? 1 : c[0] === "zoomTime" ? 0.9 : 0.5) : v;
+        Z[c[0]] = isNaN(v) ? (c[0] === "restZoom" || /^zoom\d$/.test(c[0]) ? 1 : c[0] === "zoomTime" ? 0.9 : 0.5) : v;
       }
     });
     Z.base = Object.assign({}, Z); delete Z.base.set;
@@ -103,7 +115,12 @@
     if (!st) { st = document.createElement("style"); st.id = "pipes3d-zoom-vars"; document.head.appendChild(st); }
     // The 3D view can show beyond the old image edges, so drop the CSS edge clamp and let every
     // stop centre on its focus point (the image and CSS spots are hidden while 3D runs).
-    st.textContent = (css ? ".flow-illustration.zoom[data-pipes3d]{" + css + "}" : "") +
+    // hover rules for every row that has a stop of its own: the section's CSS only covers the first four
+    var rows = STOPS.filter(function (n) { return Z.set["zoom" + n] || Z.set["zoom" + n + "X"] || Z.set["zoom" + n + "Y"]; }).map(function (n) {
+      return ".zoom-scope:has(.zoom-trigger:nth-child(" + n + " of .zoom-trigger):is(:hover,:focus-within)) .zoom{" +
+        "--zoom-s:var(--zoom-" + n + "-s,1);--zoom-x:var(--zoom-" + n + "-x,.5);--zoom-y:var(--zoom-" + n + "-y,.5)}";
+    }).join("");
+    st.textContent = rows + (css ? ".flow-illustration.zoom[data-pipes3d]{" + css + "}" : "") +
       '.flow-illustration.zoom[data-pipes3d]:not([data-pipes3d="failed"]) .zoom-stage{transform:translate(' +
       "calc(50cqw - var(--zoom-s,1) * var(--zoom-x,.5) * var(--zoom-w))," +
       "calc(50cqh - var(--zoom-s,1) * var(--zoom-y,.5) * var(--zoom-h))) scale(var(--zoom-s,1))}";
@@ -461,7 +478,7 @@
       yaw += (tYaw - yaw) * kk; pitch += (tPitch - pitch) * kk;
       // per-stop camera angle, eased over about the zoom duration
       var st = activeStop(), D2R = Math.PI / 180;
-      var cT = [LOOK["cam" + st + "Turn"] * D2R, LOOK["cam" + st + "Tilt"] * D2R, LOOK["cam" + st + "Roll"] * D2R];
+      var cT = [(LOOK["cam" + st + "Turn"] || 0) * D2R, (LOOK["cam" + st + "Tilt"] || 0) * D2R, (LOOK["cam" + st + "Roll"] || 0) * D2R];
       var zd = parseFloat(getComputedStyle(frame).getPropertyValue("--zoom-duration")) || 0.9;
       var kc = reduce ? 1 : 1 - Math.exp(-dt * 4 / zd);
       for (var ci = 0; ci < 3; ci++) cam[ci] += (cT[ci] - cam[ci]) * kc;
@@ -597,7 +614,7 @@
     var html = "<b style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'>Pipe linework" + (ALT ? " (alt)" : "") +
       "<button type='button' data-min style='" + btn + ";flex:none;padding:2px 8px'>Hide</button></b><div data-body><span style='" + hd + "'>Zoom</span>" +
       "<div style='display:flex;gap:4px;margin-bottom:4px'>Preview:" +
-      ["Rest", "01", "02", "03"].map(function (t, i) { return "<button type='button' data-pv='" + i + "' style='" + btn + "'>" + t + "</button>"; }).join("") + "</div>";
+      ["Rest"].concat(STOPS.map(function (n) { return "0" + n; })).map(function (t, i) { return "<button type='button' data-pv='" + i + "' style='" + btn + "'>" + t + "</button>"; }).join("") + "</div>";
     ZCTRL.forEach(function (c) {
       html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-zo='" + c[0] + "' style='float:right'>" + ZOOM[c[0]] + "</span>" +
         "<input data-z='" + c[0] + "' type='range' min='" + c[2] + "' max='" + c[3] + "' step='" + c[4] + "' value='" + ZOOM[c[0]] + "' style='width:100%'></label>";

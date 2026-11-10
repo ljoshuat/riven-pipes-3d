@@ -141,14 +141,16 @@ const G = (() => {
   // Alt build (client add-ons, matching their mock-up): an inline 3-piece ball valve on the main pipe
   // left of the first riser, a temperature sensor standing on the main pipe where the third riser
   // was, and the two down pipes moved to sit directly under the risers.
-  const ALT = { valveX: -3.8, valveHalf: 2.05, sensorX: 10.3 };
+  // The two risers are also spread apart (and the valve and sensor moved out with them) so the
+  // flange joint on the main pipe between them has clear pipe on both sides.
+  const ALT = { valveX: -4.3, valveHalf: 2.05, sensorX: 11.3, riserA: 0.35, riserB: 7.15 };
   const NET_ALT = [
     // (the far-left flange pair is dropped: it would sit right against the valve in the wider alt view)
     Object.assign({}, NET[0], { flangesX: [3.637], welds: [ALT.valveX - ALT.valveHalf, ALT.valveX + ALT.valveHalf],
                                 gapsX: [[ALT.valveX - ALT.valveHalf, ALT.valveX + ALT.valveHalf]] }),
-    NET[1], NET[2],
-    { id: "D1", r: 0.88, x: 1.142, down: 40, riserFlanges: [4.3] },
-    { id: "D2", r: 0.833, x: 6.097, down: 40, riserFlanges: [4.1] },
+    Object.assign({}, NET[1], { x: ALT.riserA }), Object.assign({}, NET[2], { x: ALT.riserB }),
+    { id: "D1", r: 0.88, x: ALT.riserA, down: 40, riserFlanges: [4.3] },
+    { id: "D2", r: 0.833, x: ALT.riserB, down: 40, riserFlanges: [4.1] },
   ];
 
   function pipesFromNet(alt) {
@@ -258,13 +260,24 @@ const G = (() => {
   // ---------- alt build add-ons: inline ball valve + temperature sensor ----------
   function addOns({ parts, detail, rings, pipes, seg, nLines }) {
     const M2 = Math.max(seg, 72), X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
-    const put = (geo, props) => parts.push(buildEdges(Object.assign(geo, { kind: "fitting" }, props || {})));
+    // blue-highlight geometry for the group being built: profile corners as rings (bold),
+    // flats, bolts and the long lines as thin lines
+    let H = null;
+    const put = (geo, props) => {
+      const p = buildEdges(Object.assign(geo, { kind: "fitting" }, props || {}));
+      parts.push(p);
+      if (H) for (const e of p.featureEdges) (p.M > 8 && !(p.scale < 1) ? H.rings : H.lines).push([p.pos[e.a], p.pos[e.b]]);
+    };
     // a turned (lathe) piece: profile is [distance along the axis, radius]
-    const turn = (fr, profile, M, o, props) => put(lathe(Object.assign({ profile, frameAt: fr, M }, o || {})), Object.assign({ turned: true }, props || {}));
+    const turn = (fr, profile, M, o, props) => {
+      put(lathe(Object.assign({ profile, frameAt: fr, M }, o || {})), Object.assign({ turned: true }, props || {}));
+      if (H && M > 8) profileLines(H.lines, fr, profile, profile.some(([, r]) => r > 0.5) ? 12 : 6);
+    };
     const hex = (fr, t0, t1, r, phase, props) => turn(fr, [[t0, r], [t1, r]], 6, { cap0: true, cap1: true, phase: phase || 0 }, Object.assign({ scale: 0.3 }, props || {}));
     const nMain = nLines > 0 ? Math.max(8, Math.round(nLines * 1.1 / 4) * 4) : 0;
 
     // ===== 3-piece ball valve, inline on the main pipe (r = 1) =====
+    const valveHL = (H = { rings: [], lines: [] });
     {
       const main = pipes.find((q) => q.id === "main"), xv = ALT.valveX, H = ALT.valveHalf;
       const sv = main.gaps[0][0] + H, fm = (t) => main.path.frame(sv + t);
@@ -310,6 +323,7 @@ const G = (() => {
     }
 
     // ===== temperature sensor (thermowell + connection head) on top of the main pipe =====
+    const sensorHL = (H = { rings: [], lines: [] });
     {
       const xs = ALT.sensorX, ft = lineFrame([xs, 0, 0], Y, Z);
       turn(ft, [[0.9, 0.28], [1.08, 0.28], [1.08, 0.42], [1.2, 0.42], [1.24, 0.38]], 48, { cap1: true }, { scale: 0.5 });  // weld-on nozzle + flange
@@ -319,21 +333,25 @@ const G = (() => {
       turn(ft, [[3.12, 0.14], [3.24, 0.14]], 24, null, { scale: 0.3 });
       hex(ft, 3.24, 3.46, 0.26, Math.PI / 6);                                                                               // union nut
       turn(ft, [[3.46, 0.2], [3.58, 0.2], [3.72, 0.36], [3.8, 0.36]], 48, null, { scale: 0.5 });                            // neck of the head
-      const head = [[3.8, 0.36], [3.94, 0.72], [4.48, 0.72], [4.48, 0.79], [4.58, 0.79], [4.58, 0.74], [4.78, 0.68], [4.91, 0.52], [4.96, 0.26]];
+      const head = [[3.8, 0.36], [3.9, 0.62], [4.26, 0.62], [4.26, 0.68], [4.35, 0.68], [4.35, 0.64], [4.5, 0.59], [4.6, 0.45], [4.64, 0.22]];
       turn(ft, head, 64, { cap1: true });                                                                                    // head body, lid seam and lid
       if (nLines > 0) profileLines(detail, ft, head, 12);
       // cable entry: boss out of the side of the head, gland nut, open bore
-      const hc = [xs, 4.2, 0], fp = lineFrame(hc, [-0.82, 0, 0.57], Y);
-      turn(fp, [[0.5, 0.26], [1.06, 0.26]], 32, null, { scale: 0.5 });
-      hex(fp, 1.06, 1.26, 0.32, 0);
-      turn(fp, [[1.26, 0.22], [1.33, 0.22], [1.33, 0.16], [1.14, 0.16]], 32, { cap1: true }, { scale: 0.3 });
+      const hc = [xs, 4.08, 0], fp = lineFrame(hc, [-0.82, 0, 0.57], Y);
+      turn(fp, [[0.45, 0.17], [0.9, 0.17]], 32, null, { scale: 0.5 });
+      hex(fp, 0.9, 1.07, 0.23, 0);
+      turn(fp, [[1.07, 0.16], [1.13, 0.16], [1.13, 0.11], [0.97, 0.11]], 32, { cap1: true }, { scale: 0.3 });
       // lid hinge block and latch screw on the seam
-      for (const [dir, w] of [[norm([0.62, 0, -0.78]), 0.34], [norm([0.74, 0, 0.67]), 0.2]]) {
+      for (const [dir, w] of [[norm([0.62, 0, -0.78]), 0.3], [norm([0.74, 0, 0.67]), 0.18]]) {
         const tan = cross(Y, dir);
-        put(sweepBar(add([xs, 4.53, 0], mul(dir, 0.84)), dir, Y, tan, [[-0.1, 0], [0.1, 0]], 0.24, w), { scale: 0.3, kind: "bolt" });
+        put(sweepBar(add([xs, 4.305, 0], mul(dir, 0.73)), dir, Y, tan, [[-0.09, 0], [0.09, 0]], 0.2, w), { scale: 0.3, kind: "bolt" });
       }
-      hex(offsetFrame(ft, () => mul(norm([0.74, 0, 0.67]), 0.86)), 4.65, 4.72, 0.07, 0, { kind: "bolt", scale: 0.15 });
+      hex(offsetFrame(ft, () => mul(norm([0.74, 0, 0.67]), 0.75)), 4.405, 4.47, 0.06, 0, { kind: "bolt", scale: 0.15 });
+      // extra rings up the probe stem so it reads when highlighted
+      for (let y = 1.7; y < 2.9; y += 0.3) { const F = ft(y); sensorHL.rings.push(circle(F.c, F.N, F.B, 0.102, 24)); }
     }
+    H = null;
+    return { valve: valveHL, sensor: sensorHL };
   }
 
   function build(opts) {
@@ -342,7 +360,7 @@ const G = (() => {
     const pipes = pipesFromNet(alt);
     const parts = [], detail = [], rings = [], saddles = [], highlights = {};
     // weld rings highlighted for each hover stop: [stop, pipe id, flange index, side (-1 upstream hub, +1 downstream hub)]
-    const HL = [[2, "main", opts.alt ? 0 : 1, 1]];
+    const HL = opts.alt ? [] : [[2, "main", 1, 1]];
 
     for (const P of pipes) {
       const { r, path } = P, D = FLD(r), Lp = path.length;
@@ -478,28 +496,42 @@ const G = (() => {
                                 // one more ring just past the weld, out on the pipe
                                 ringAt(P, P.flanges[fi] + side * (D.hub + 0.12 * P.r), P.r * 1.012)], lines: [] };
     }
-    // 03: the small elbow's flange joint: every ring of the flange pair plus the bolt outlines
-    {
-      const P = pipes.find((q) => q.id === (alt ? "B" : "C")), fi = alt ? 1 : 0;   // alt: no third riser, use the second elbow's flange
-      if (P && P.flanges.length > fi) {
-        const r = P.r, D = FLD(r), sc = P.flanges[fi], out = { rings: [], lines: [] }, k = 1.004;
-        for (const [s, rr] of [[sc - D.hub, r * 1.015], [sc - D.face, D.RHUB], [sc - D.face, D.RF], [sc - D.gap, D.RF],
-                               [sc - D.gap, D.RRAISE], [sc + D.gap, D.RF], [sc + D.face, D.RF], [sc + D.face, D.RHUB], [sc + D.hub, r * 1.015]])
-          out.rings.push(ringAt(P, s, rr * k));
-        const F = P.path.frame(sc), nr = 0.27 * r * k, nh = 0.3 * r;
-        for (let i = 0; i < nBolts; i++) {
-          const th = 2 * Math.PI * (i + 0.5) / nBolts;
-          const c = add(F.c, add(mul(F.N, D.BC * Math.cos(th)), mul(F.B, D.BC * Math.sin(th))));
-          const hex = (s) => { const pts = []; for (let j = 0; j <= 6; j++) { const a = th + 2 * Math.PI * j / 6;
-            pts.push(add(add(c, mul(F.T, s)), add(mul(F.N, nr * Math.cos(a)), mul(F.B, nr * Math.sin(a))))); } return pts; };
-          for (const [s0, s1] of [[D.face, D.face + nh], [-D.face - nh, -D.face]]) {
-            const h0 = hex(s0), h1 = hex(s1);
-            out.lines.push(h0, h1);
-            for (let j = 0; j < 6; j++) out.lines.push([h0[j], h1[j]]);
-          }
+    // a whole flange joint: every ring of the flange pair plus the bolt outlines
+    const flangeHL = (P, fi) => {
+      const r = P.r, D = FLD(r), sc = P.flanges[fi], out = { rings: [], lines: [] }, k = 1.004;
+      for (const [s, rr] of [[sc - D.hub, r * 1.015], [sc - D.face, D.RHUB], [sc - D.face, D.RF], [sc - D.gap, D.RF],
+                             [sc - D.gap, D.RRAISE], [sc + D.gap, D.RF], [sc + D.face, D.RF], [sc + D.face, D.RHUB], [sc + D.hub, r * 1.015]])
+        out.rings.push(ringAt(P, s, rr * k));
+      const F = P.path.frame(sc), nr = 0.27 * r * k, nh = 0.3 * r;
+      for (let i = 0; i < nBolts; i++) {
+        const th = 2 * Math.PI * (i + 0.5) / nBolts;
+        const c = add(F.c, add(mul(F.N, D.BC * Math.cos(th)), mul(F.B, D.BC * Math.sin(th))));
+        const hex = (s) => { const pts = []; for (let j = 0; j <= 6; j++) { const a = th + 2 * Math.PI * j / 6;
+          pts.push(add(add(c, mul(F.T, s)), add(mul(F.N, nr * Math.cos(a)), mul(F.B, nr * Math.sin(a))))); } return pts; };
+        for (const [s0, s1] of [[D.face, D.face + nh], [-D.face - nh, -D.face]]) {
+          const h0 = hex(s0), h1 = hex(s1);
+          out.lines.push(h0, h1);
+          for (let j = 0; j < 6; j++) out.lines.push([h0[j], h1[j]]);
         }
-        highlights[3] = out;
       }
+      return out;
+    };
+    // an elbow: rings across the bend plus the long lines through it
+    const elbowHL = (P) => {
+      const [a0, a1] = P.path.arcs[0], rr = P.r * 1.006, out = { rings: [], lines: [] };
+      for (let i = 0; i <= 6; i++) out.rings.push(ringAt(P, a0 + (a1 - a0) * i / 6, rr));
+      const nl = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, P.r / 0.9)) / 4) * 4);
+      for (let k = 0; k < nl; k++) {
+        const th = 2 * Math.PI * k / nl + Math.PI / nl, L = [];
+        for (let j = 0; j <= 48; j++) { const F = P.path.frame(a0 + (a1 - a0) * j / 48); L.push(add(F.c, add(mul(F.N, rr * Math.cos(th)), mul(F.B, rr * Math.sin(th))))); }
+        out.lines.push(L);
+      }
+      return out;
+    };
+    // main build, 03: the small elbow's flange joint
+    if (!alt) {
+      const P = pipes.find((q) => q.id === "C");
+      if (P && P.flanges.length) highlights[3] = flangeHL(P, 0);
     }
     // 01: the long top run only (after the elbow and its flange): its wire rings and lines
     {
@@ -525,7 +557,16 @@ const G = (() => {
         highlights[1] = out;
       }
     }
-    if (alt) addOns({ parts, detail, rings, pipes, seg, nLines });
+    // Alt build: five hover rows. 01 the long top pipe (above), 02 the valve, 03 the top elbow,
+    // 04 the flange joint on the main pipe, 05 the temperature sensor.
+    if (alt) {
+      const add2 = addOns({ parts, detail, rings, pipes, seg, nLines });
+      const main = pipes.find((q) => q.id === "main"), A = pipes.find((q) => q.id === "A");
+      highlights[2] = add2.valve;
+      highlights[3] = elbowHL(A);
+      highlights[4] = flangeHL(main, 0);
+      highlights[5] = add2.sensor;
+    }
 
     return { parts, detail, rings, saddles, highlights };
   }

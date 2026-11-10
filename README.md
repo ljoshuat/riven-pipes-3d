@@ -106,19 +106,29 @@ A second build of the pipe for the client's add-ons, matching their mock-up:
 
 - a 3-piece ball valve inline on the main pipe, left of the first riser (lever in plain steel, no colour);
 - a temperature sensor (thermowell + connection head) on top of the main pipe, where the third riser was;
+- the two risers are spread apart so the flange joint on the main pipe has clear pipe on both sides;
 - the two down pipes sit directly under the two risers; the far-left flange pair is dropped.
 
 Preview it for yourself only by adding `?pipes-alt` to the page URL (`&pipes-tune` for the controls).
 To make it live for everyone, add `data-pipe-variant = alt` to the Div with the other attributes.
 
+It has five hover rows:
+
+| Row | Highlights and zooms to |
+|---|---|
+| 01 Stainless steel pipe | the long top pipe (uses the main version's 01 settings) |
+| 02 Valves | the ball valve |
+| 03 Elbows | the top elbow |
+| 04 Ferrules & flanges | the flange joint on the main pipe |
+| 05 Sensors & controls | the temperature sensor |
+
 The alt version keeps its own framing. A setting is read from `data-pipe-alt-<name>` first, then the
 built-in alt default, then the normal `data-pipe-<name>` attribute. In the tune panel, "Copy as Bricks
 attributes" gives `data-pipe-alt-...` lines, so the main version's attributes are never changed.
+Built-in alt defaults: a wider resting view (`rest-zoom 0.85`, `rest-x 0.47`, `rest-y 0.5`) and the
+zoom amount and focus for rows 02 to 05 (`zoom2` .. `zoom5`, with `-x` / `-y`), camera angles 0.
 
-| Alt default | Value | Why |
-|---|---|---|
-| rest-zoom / rest-x / rest-y | 0.85 / 0.47 / 0.5 | wider view so the valve on the left is in frame |
-| zoom3 / zoom3-x / zoom3-y | 3.2 / 0.596 / 0.366 | stop 03 moves to the second elbow's flange (the third riser is gone) |
-| cam3-turn / tilt / roll | 0 | camera angle for the moved stop 03 |
+The script handles up to five rows (`zoom1` .. `zoom5`, `cam1-*` .. `cam5-*`). The main version only
+has stops for its first three rows.
 
 The loading still (`docs/riven-pipe-rest.webp`) shows the main version, so the alt hides it while the 3D loads.

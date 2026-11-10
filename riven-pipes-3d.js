@@ -143,14 +143,16 @@ const G = (() => {
   // Alt build (client add-ons, matching their mock-up): an inline 3-piece ball valve on the main pipe
   // left of the first riser, a temperature sensor standing on the main pipe where the third riser
   // was, and the two down pipes moved to sit directly under the risers.
-  const ALT = { valveX: -3.8, valveHalf: 2.05, sensorX: 10.3 };
+  // The two risers are also spread apart (and the valve and sensor moved out with them) so the
+  // flange joint on the main pipe between them has clear pipe on both sides.
+  const ALT = { valveX: -4.3, valveHalf: 2.05, sensorX: 11.3, riserA: 0.35, riserB: 7.15 };
   const NET_ALT = [
     // (the far-left flange pair is dropped: it would sit right against the valve in the wider alt view)
     Object.assign({}, NET[0], { flangesX: [3.637], welds: [ALT.valveX - ALT.valveHalf, ALT.valveX + ALT.valveHalf],
                                 gapsX: [[ALT.valveX - ALT.valveHalf, ALT.valveX + ALT.valveHalf]] }),
-    NET[1], NET[2],
-    { id: "D1", r: 0.88, x: 1.142, down: 40, riserFlanges: [4.3] },
-    { id: "D2", r: 0.833, x: 6.097, down: 40, riserFlanges: [4.1] },
+    Object.assign({}, NET[1], { x: ALT.riserA }), Object.assign({}, NET[2], { x: ALT.riserB }),
+    { id: "D1", r: 0.88, x: ALT.riserA, down: 40, riserFlanges: [4.3] },
+    { id: "D2", r: 0.833, x: ALT.riserB, down: 40, riserFlanges: [4.1] },
   ];
 
   function pipesFromNet(alt) {
@@ -260,13 +262,24 @@ const G = (() => {
   // ---------- alt build add-ons: inline ball valve + temperature sensor ----------
   function addOns({ parts, detail, rings, pipes, seg, nLines }) {
     const M2 = Math.max(seg, 72), X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
-    const put = (geo, props) => parts.push(buildEdges(Object.assign(geo, { kind: "fitting" }, props || {})));
+    // blue-highlight geometry for the group being built: profile corners as rings (bold),
+    // flats, bolts and the long lines as thin lines
+    let H = null;
+    const put = (geo, props) => {
+      const p = buildEdges(Object.assign(geo, { kind: "fitting" }, props || {}));
+      parts.push(p);
+      if (H) for (const e of p.featureEdges) (p.M > 8 && !(p.scale < 1) ? H.rings : H.lines).push([p.pos[e.a], p.pos[e.b]]);
+    };
     // a turned (lathe) piece: profile is [distance along the axis, radius]
-    const turn = (fr, profile, M, o, props) => put(lathe(Object.assign({ profile, frameAt: fr, M }, o || {})), Object.assign({ turned: true }, props || {}));
+    const turn = (fr, profile, M, o, props) => {
+      put(lathe(Object.assign({ profile, frameAt: fr, M }, o || {})), Object.assign({ turned: true }, props || {}));
+      if (H && M > 8) profileLines(H.lines, fr, profile, profile.some(([, r]) => r > 0.5) ? 12 : 6);
+    };
     const hex = (fr, t0, t1, r, phase, props) => turn(fr, [[t0, r], [t1, r]], 6, { cap0: true, cap1: true, phase: phase || 0 }, Object.assign({ scale: 0.3 }, props || {}));
     const nMain = nLines > 0 ? Math.max(8, Math.round(nLines * 1.1 / 4) * 4) : 0;
 
     // ===== 3-piece ball valve, inline on the main pipe (r = 1) =====
+    const valveHL = (H = { rings: [], lines: [] });
     {
       const main = pipes.find((q) => q.id === "main"), xv = ALT.valveX, H = ALT.valveHalf;
       const sv = main.gaps[0][0] + H, fm = (t) => main.path.frame(sv + t);
@@ -312,6 +325,7 @@ const G = (() => {
     }
 
     // ===== temperature sensor (thermowell + connection head) on top of the main pipe =====
+    const sensorHL = (H = { rings: [], lines: [] });
     {
       const xs = ALT.sensorX, ft = lineFrame([xs, 0, 0], Y, Z);
       turn(ft, [[0.9, 0.28], [1.08, 0.28], [1.08, 0.42], [1.2, 0.42], [1.24, 0.38]], 48, { cap1: true }, { scale: 0.5 });  // weld-on nozzle + flange
@@ -321,21 +335,25 @@ const G = (() => {
       turn(ft, [[3.12, 0.14], [3.24, 0.14]], 24, null, { scale: 0.3 });
       hex(ft, 3.24, 3.46, 0.26, Math.PI / 6);                                                                               // union nut
       turn(ft, [[3.46, 0.2], [3.58, 0.2], [3.72, 0.36], [3.8, 0.36]], 48, null, { scale: 0.5 });                            // neck of the head
-      const head = [[3.8, 0.36], [3.94, 0.72], [4.48, 0.72], [4.48, 0.79], [4.58, 0.79], [4.58, 0.74], [4.78, 0.68], [4.91, 0.52], [4.96, 0.26]];
+      const head = [[3.8, 0.36], [3.9, 0.62], [4.26, 0.62], [4.26, 0.68], [4.35, 0.68], [4.35, 0.64], [4.5, 0.59], [4.6, 0.45], [4.64, 0.22]];
       turn(ft, head, 64, { cap1: true });                                                                                    // head body, lid seam and lid
       if (nLines > 0) profileLines(detail, ft, head, 12);
       // cable entry: boss out of the side of the head, gland nut, open bore
-      const hc = [xs, 4.2, 0], fp = lineFrame(hc, [-0.82, 0, 0.57], Y);
-      turn(fp, [[0.5, 0.26], [1.06, 0.26]], 32, null, { scale: 0.5 });
-      hex(fp, 1.06, 1.26, 0.32, 0);
-      turn(fp, [[1.26, 0.22], [1.33, 0.22], [1.33, 0.16], [1.14, 0.16]], 32, { cap1: true }, { scale: 0.3 });
+      const hc = [xs, 4.08, 0], fp = lineFrame(hc, [-0.82, 0, 0.57], Y);
+      turn(fp, [[0.45, 0.17], [0.9, 0.17]], 32, null, { scale: 0.5 });
+      hex(fp, 0.9, 1.07, 0.23, 0);
+      turn(fp, [[1.07, 0.16], [1.13, 0.16], [1.13, 0.11], [0.97, 0.11]], 32, { cap1: true }, { scale: 0.3 });
       // lid hinge block and latch screw on the seam
-      for (const [dir, w] of [[norm([0.62, 0, -0.78]), 0.34], [norm([0.74, 0, 0.67]), 0.2]]) {
+      for (const [dir, w] of [[norm([0.62, 0, -0.78]), 0.3], [norm([0.74, 0, 0.67]), 0.18]]) {
         const tan = cross(Y, dir);
-        put(sweepBar(add([xs, 4.53, 0], mul(dir, 0.84)), dir, Y, tan, [[-0.1, 0], [0.1, 0]], 0.24, w), { scale: 0.3, kind: "bolt" });
+        put(sweepBar(add([xs, 4.305, 0], mul(dir, 0.73)), dir, Y, tan, [[-0.09, 0], [0.09, 0]], 0.2, w), { scale: 0.3, kind: "bolt" });
       }
-      hex(offsetFrame(ft, () => mul(norm([0.74, 0, 0.67]), 0.86)), 4.65, 4.72, 0.07, 0, { kind: "bolt", scale: 0.15 });
+      hex(offsetFrame(ft, () => mul(norm([0.74, 0, 0.67]), 0.75)), 4.405, 4.47, 0.06, 0, { kind: "bolt", scale: 0.15 });
+      // extra rings up the probe stem so it reads when highlighted
+      for (let y = 1.7; y < 2.9; y += 0.3) { const F = ft(y); sensorHL.rings.push(circle(F.c, F.N, F.B, 0.102, 24)); }
     }
+    H = null;
+    return { valve: valveHL, sensor: sensorHL };
   }
 
   function build(opts) {
@@ -344,7 +362,7 @@ const G = (() => {
     const pipes = pipesFromNet(alt);
     const parts = [], detail = [], rings = [], saddles = [], highlights = {};
     // weld rings highlighted for each hover stop: [stop, pipe id, flange index, side (-1 upstream hub, +1 downstream hub)]
-    const HL = [[2, "main", opts.alt ? 0 : 1, 1]];
+    const HL = opts.alt ? [] : [[2, "main", 1, 1]];
 
     for (const P of pipes) {
       const { r, path } = P, D = FLD(r), Lp = path.length;
@@ -480,28 +498,42 @@ const G = (() => {
                                 // one more ring just past the weld, out on the pipe
                                 ringAt(P, P.flanges[fi] + side * (D.hub + 0.12 * P.r), P.r * 1.012)], lines: [] };
     }
-    // 03: the small elbow's flange joint: every ring of the flange pair plus the bolt outlines
-    {
-      const P = pipes.find((q) => q.id === (alt ? "B" : "C")), fi = alt ? 1 : 0;   // alt: no third riser, use the second elbow's flange
-      if (P && P.flanges.length > fi) {
-        const r = P.r, D = FLD(r), sc = P.flanges[fi], out = { rings: [], lines: [] }, k = 1.004;
-        for (const [s, rr] of [[sc - D.hub, r * 1.015], [sc - D.face, D.RHUB], [sc - D.face, D.RF], [sc - D.gap, D.RF],
-                               [sc - D.gap, D.RRAISE], [sc + D.gap, D.RF], [sc + D.face, D.RF], [sc + D.face, D.RHUB], [sc + D.hub, r * 1.015]])
-          out.rings.push(ringAt(P, s, rr * k));
-        const F = P.path.frame(sc), nr = 0.27 * r * k, nh = 0.3 * r;
-        for (let i = 0; i < nBolts; i++) {
-          const th = 2 * Math.PI * (i + 0.5) / nBolts;
-          const c = add(F.c, add(mul(F.N, D.BC * Math.cos(th)), mul(F.B, D.BC * Math.sin(th))));
-          const hex = (s) => { const pts = []; for (let j = 0; j <= 6; j++) { const a = th + 2 * Math.PI * j / 6;
-            pts.push(add(add(c, mul(F.T, s)), add(mul(F.N, nr * Math.cos(a)), mul(F.B, nr * Math.sin(a))))); } return pts; };
-          for (const [s0, s1] of [[D.face, D.face + nh], [-D.face - nh, -D.face]]) {
-            const h0 = hex(s0), h1 = hex(s1);
-            out.lines.push(h0, h1);
-            for (let j = 0; j < 6; j++) out.lines.push([h0[j], h1[j]]);
-          }
+    // a whole flange joint: every ring of the flange pair plus the bolt outlines
+    const flangeHL = (P, fi) => {
+      const r = P.r, D = FLD(r), sc = P.flanges[fi], out = { rings: [], lines: [] }, k = 1.004;
+      for (const [s, rr] of [[sc - D.hub, r * 1.015], [sc - D.face, D.RHUB], [sc - D.face, D.RF], [sc - D.gap, D.RF],
+                             [sc - D.gap, D.RRAISE], [sc + D.gap, D.RF], [sc + D.face, D.RF], [sc + D.face, D.RHUB], [sc + D.hub, r * 1.015]])
+        out.rings.push(ringAt(P, s, rr * k));
+      const F = P.path.frame(sc), nr = 0.27 * r * k, nh = 0.3 * r;
+      for (let i = 0; i < nBolts; i++) {
+        const th = 2 * Math.PI * (i + 0.5) / nBolts;
+        const c = add(F.c, add(mul(F.N, D.BC * Math.cos(th)), mul(F.B, D.BC * Math.sin(th))));
+        const hex = (s) => { const pts = []; for (let j = 0; j <= 6; j++) { const a = th + 2 * Math.PI * j / 6;
+          pts.push(add(add(c, mul(F.T, s)), add(mul(F.N, nr * Math.cos(a)), mul(F.B, nr * Math.sin(a))))); } return pts; };
+        for (const [s0, s1] of [[D.face, D.face + nh], [-D.face - nh, -D.face]]) {
+          const h0 = hex(s0), h1 = hex(s1);
+          out.lines.push(h0, h1);
+          for (let j = 0; j < 6; j++) out.lines.push([h0[j], h1[j]]);
         }
-        highlights[3] = out;
       }
+      return out;
+    };
+    // an elbow: rings across the bend plus the long lines through it
+    const elbowHL = (P) => {
+      const [a0, a1] = P.path.arcs[0], rr = P.r * 1.006, out = { rings: [], lines: [] };
+      for (let i = 0; i <= 6; i++) out.rings.push(ringAt(P, a0 + (a1 - a0) * i / 6, rr));
+      const nl = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, P.r / 0.9)) / 4) * 4);
+      for (let k = 0; k < nl; k++) {
+        const th = 2 * Math.PI * k / nl + Math.PI / nl, L = [];
+        for (let j = 0; j <= 48; j++) { const F = P.path.frame(a0 + (a1 - a0) * j / 48); L.push(add(F.c, add(mul(F.N, rr * Math.cos(th)), mul(F.B, rr * Math.sin(th))))); }
+        out.lines.push(L);
+      }
+      return out;
+    };
+    // main build, 03: the small elbow's flange joint
+    if (!alt) {
+      const P = pipes.find((q) => q.id === "C");
+      if (P && P.flanges.length) highlights[3] = flangeHL(P, 0);
     }
     // 01: the long top run only (after the elbow and its flange): its wire rings and lines
     {
@@ -527,7 +559,16 @@ const G = (() => {
         highlights[1] = out;
       }
     }
-    if (alt) addOns({ parts, detail, rings, pipes, seg, nLines });
+    // Alt build: five hover rows. 01 the long top pipe (above), 02 the valve, 03 the top elbow,
+    // 04 the flange joint on the main pipe, 05 the temperature sensor.
+    if (alt) {
+      const add2 = addOns({ parts, detail, rings, pipes, seg, nLines });
+      const main = pipes.find((q) => q.id === "main"), A = pipes.find((q) => q.id === "A");
+      highlights[2] = add2.valve;
+      highlights[3] = elbowHL(A);
+      highlights[4] = flangeHL(main, 0);
+      highlights[5] = add2.sensor;
+    }
 
     return { parts, detail, rings, saddles, highlights };
   }
@@ -657,9 +698,12 @@ window.RivenPipesG = G;
     ["xray", "X-ray steel opacity", 0, 1, 0.02], ["restLines", "Lines at rest", 0, 1, 0.02],
     ["xrayHidden", "X-ray hidden lines", 0, 1, 0.02], ["xraySpeed", "X-ray fade s", 0.1, 2, 0.05],
     ["xrayOnHover", "X-ray on drawing hover (0/1)", 0, 1, 1]];
-  // camera angle per zoom position (0 = rest, 1-3 = hover stops), in degrees
+  // hover rows the drawing can react to (01 .. 05)
+  var NSTOP = 5, STOPS = [];
+  for (var sn = 1; sn <= NSTOP; sn++) STOPS.push(sn);
+  // camera angle per zoom position (0 = rest, then the hover stops), in degrees
   var CAMCTRL = [];
-  [0, 1, 2, 3].forEach(function (n) {
+  [0].concat(STOPS).forEach(function (n) {
     var nm = n ? "0" + n : "Rest";
     [["Turn", "turn left/right", 40], ["Tilt", "tilt up/down", 30], ["Roll", "level / roll", 30]].forEach(function (a) {
       DEFAULTS["cam" + n + a[0]] = 0;
@@ -680,13 +724,17 @@ window.RivenPipesG = G;
     ["restZoom", "Resting zoom", 0.5, 2.5, 0.05, "--zoom-s", ""],
     ["restX", "Resting focus X", 0, 1, 0.005, "--zoom-x", ""],
     ["restY", "Resting focus Y", 0, 1, 0.005, "--zoom-y", ""],
-    ["zoom1", "Zoom 01 amount", 1, 6, 0.05, "--zoom-1-s", ""],
-    ["zoom2", "Zoom 02 amount", 1, 6, 0.05, "--zoom-2-s", ""],
-    ["zoom3", "Zoom 03 amount", 1, 6, 0.05, "--zoom-3-s", ""],
-    ["zoom1X", "Zoom 01 focus X", 0, 1, 0.005, "--zoom-1-x", ""], ["zoom1Y", "Zoom 01 focus Y", 0, 1, 0.005, "--zoom-1-y", ""],
-    ["zoom2X", "Zoom 02 focus X", 0, 1, 0.005, "--zoom-2-x", ""], ["zoom2Y", "Zoom 02 focus Y", 0, 1, 0.005, "--zoom-2-y", ""],
-    ["zoom3X", "Zoom 03 focus X", 0, 1, 0.005, "--zoom-3-x", ""], ["zoom3Y", "Zoom 03 focus Y", 0, 1, 0.005, "--zoom-3-y", ""],
     ["zoomTime", "Zoom duration s", 0.2, 2.5, 0.05, "--zoom-duration", "s"]];
+  // amount and focus for each hover stop, inserted before the duration
+  (function () {
+    var amt = [], foc = [];
+    STOPS.forEach(function (n) {
+      amt.push(["zoom" + n, "Zoom 0" + n + " amount", 1, 6, 0.05, "--zoom-" + n + "-s", ""]);
+      foc.push(["zoom" + n + "X", "Zoom 0" + n + " focus X", 0, 1, 0.005, "--zoom-" + n + "-x", ""],
+               ["zoom" + n + "Y", "Zoom 0" + n + " focus Y", 0, 1, 0.005, "--zoom-" + n + "-y", ""]);
+    });
+    ZCTRL = ZCTRL.slice(0, 3).concat(amt, foc, ZCTRL.slice(3));
+  })();
   // built-in overrides of the section's CSS: 01 now centres on the top elbow it highlights
   var ZOOM_DEFAULTS = { restZoom: 1, restX: 0.585, restY: 0.475, zoom1X: 0.565, zoom1Y: 0.22, zoomTime: 1.75 };
   var attrName = function (k) { return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }); };
@@ -695,8 +743,13 @@ window.RivenPipesG = G;
   // It has its own framing: a setting comes from data-pipe-alt-<name> if present, then the alt
   // default below, then the normal data-pipe-<name> attribute.
   var isAlt = function (el) { return /[?&]pipes-alt\b/.test(location.search) || (!!el && el.getAttribute("data-pipe-variant") === "alt"); };
+  // Its five hover rows: 01 the long top pipe (uses the main version's 01 settings), 02 the valve,
+  // 03 the top elbow, 04 the flange joint on the main pipe, 05 the temperature sensor.
   var ALT_DEFAULTS = { restZoom: 0.85, restX: 0.47, restY: 0.5,                       // wider, so the valve on the left is in view
-                       zoom3: 3.2, zoom3X: 0.596, zoom3Y: 0.366, cam3Turn: 0, cam3Tilt: 0, cam3Roll: 0 };   // 03 moves to the second elbow's flange
+                       zoom2: 2.6, zoom2X: 0.193, zoom2Y: 0.605, cam2Turn: 0, cam2Tilt: 0, cam2Roll: 0,
+                       zoom3: 3, zoom3X: 0.362, zoom3Y: 0.095, cam3Turn: 0, cam3Tilt: 0, cam3Roll: 0,
+                       zoom4: 2.8, zoom4X: 0.453, zoom4Y: 0.682, cam4Turn: 0, cam4Tilt: 0, cam4Roll: 0,
+                       zoom5: 3, zoom5X: 0.75, zoom5Y: 0.55, cam5Turn: 0, cam5Tilt: 0, cam5Roll: 0 };
   var altName = function (k) { return attrName(k).replace("data-pipe-", "data-pipe-alt-"); };
   // attribute value for a setting (null if none). skipOwn: ignore the alt build's own attributes.
   function attrOf(el, k, skipOwn) {
@@ -713,7 +766,7 @@ window.RivenPipesG = G;
       else if (ZOOM_DEFAULTS[c[0]] != null) { Z[c[0]] = ZOOM_DEFAULTS[c[0]]; Z.set[c[0]] = true; }
       else {
         var v = parseFloat(cs.getPropertyValue(c[5]));
-        Z[c[0]] = isNaN(v) ? (c[0] === "restZoom" ? 1 : c[0] === "zoomTime" ? 0.9 : 0.5) : v;
+        Z[c[0]] = isNaN(v) ? (c[0] === "restZoom" || /^zoom\d$/.test(c[0]) ? 1 : c[0] === "zoomTime" ? 0.9 : 0.5) : v;
       }
     });
     Z.base = Object.assign({}, Z); delete Z.base.set;
@@ -726,7 +779,12 @@ window.RivenPipesG = G;
     if (!st) { st = document.createElement("style"); st.id = "pipes3d-zoom-vars"; document.head.appendChild(st); }
     // The 3D view can show beyond the old image edges, so drop the CSS edge clamp and let every
     // stop centre on its focus point (the image and CSS spots are hidden while 3D runs).
-    st.textContent = (css ? ".flow-illustration.zoom[data-pipes3d]{" + css + "}" : "") +
+    // hover rules for every row that has a stop of its own: the section's CSS only covers the first four
+    var rows = STOPS.filter(function (n) { return Z.set["zoom" + n] || Z.set["zoom" + n + "X"] || Z.set["zoom" + n + "Y"]; }).map(function (n) {
+      return ".zoom-scope:has(.zoom-trigger:nth-child(" + n + " of .zoom-trigger):is(:hover,:focus-within)) .zoom{" +
+        "--zoom-s:var(--zoom-" + n + "-s,1);--zoom-x:var(--zoom-" + n + "-x,.5);--zoom-y:var(--zoom-" + n + "-y,.5)}";
+    }).join("");
+    st.textContent = rows + (css ? ".flow-illustration.zoom[data-pipes3d]{" + css + "}" : "") +
       '.flow-illustration.zoom[data-pipes3d]:not([data-pipes3d="failed"]) .zoom-stage{transform:translate(' +
       "calc(50cqw - var(--zoom-s,1) * var(--zoom-x,.5) * var(--zoom-w))," +
       "calc(50cqh - var(--zoom-s,1) * var(--zoom-y,.5) * var(--zoom-h))) scale(var(--zoom-s,1))}";
@@ -1084,7 +1142,7 @@ window.RivenPipesG = G;
       yaw += (tYaw - yaw) * kk; pitch += (tPitch - pitch) * kk;
       // per-stop camera angle, eased over about the zoom duration
       var st = activeStop(), D2R = Math.PI / 180;
-      var cT = [LOOK["cam" + st + "Turn"] * D2R, LOOK["cam" + st + "Tilt"] * D2R, LOOK["cam" + st + "Roll"] * D2R];
+      var cT = [(LOOK["cam" + st + "Turn"] || 0) * D2R, (LOOK["cam" + st + "Tilt"] || 0) * D2R, (LOOK["cam" + st + "Roll"] || 0) * D2R];
       var zd = parseFloat(getComputedStyle(frame).getPropertyValue("--zoom-duration")) || 0.9;
       var kc = reduce ? 1 : 1 - Math.exp(-dt * 4 / zd);
       for (var ci = 0; ci < 3; ci++) cam[ci] += (cT[ci] - cam[ci]) * kc;
@@ -1220,7 +1278,7 @@ window.RivenPipesG = G;
     var html = "<b style='display:flex;justify-content:space-between;align-items:center;margin-bottom:4px'>Pipe linework" + (ALT ? " (alt)" : "") +
       "<button type='button' data-min style='" + btn + ";flex:none;padding:2px 8px'>Hide</button></b><div data-body><span style='" + hd + "'>Zoom</span>" +
       "<div style='display:flex;gap:4px;margin-bottom:4px'>Preview:" +
-      ["Rest", "01", "02", "03"].map(function (t, i) { return "<button type='button' data-pv='" + i + "' style='" + btn + "'>" + t + "</button>"; }).join("") + "</div>";
+      ["Rest"].concat(STOPS.map(function (n) { return "0" + n; })).map(function (t, i) { return "<button type='button' data-pv='" + i + "' style='" + btn + "'>" + t + "</button>"; }).join("") + "</div>";
     ZCTRL.forEach(function (c) {
       html += "<label style='display:block;margin:6px 0'>" + c[1] + " <span data-zo='" + c[0] + "' style='float:right'>" + ZOOM[c[0]] + "</span>" +
         "<input data-z='" + c[0] + "' type='range' min='" + c[2] + "' max='" + c[3] + "' step='" + c[4] + "' value='" + ZOOM[c[0]] + "' style='width:100%'></label>";
