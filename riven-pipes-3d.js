@@ -530,6 +530,12 @@ const G = (() => {
       // a ring closing each straight end, just clear of the hub
       if (s0 < a0 - 0.05) out.rings.push(ringAt(P, s0 + 0.02, rr));
       if (s1 > a1 + 0.05) out.rings.push(ringAt(P, s1 - 0.02, rr));
+      // the pipe's own rings that fall inside the straight ends turn blue too (same stations as the white ones)
+      if (ringGap > 0) {
+        const step = ringGap * Math.max(0.7, P.r), zones = P.flanges.map((sc) => [sc - D.hub - 0.2, sc + D.hub + 0.2]);
+        for (let s = (P.tee ? 1.6 : 0) + step; s < P.path.length - 0.2; s += step)
+          if (((s > s0 && s < a0) || (s > a1 && s < s1)) && !zones.some(([za, zb]) => s > za && s < zb)) out.rings.push(ringAt(P, s, rr));
+      }
       const st = [s0];
       for (let j = 0; j <= 48; j++) st.push(a0 + (a1 - a0) * j / 48);
       st.push(s1);
