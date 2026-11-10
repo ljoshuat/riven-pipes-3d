@@ -109,8 +109,9 @@ A second build of the pipe for the client's add-ons, matching their mock-up:
 - the two risers are spread apart so the flange joint on the main pipe has clear pipe on both sides;
 - the two down pipes sit directly under the two risers; the far-left flange pair is dropped.
 
-Preview it for yourself only by adding `?pipes-alt` to the page URL (`&pipes-tune` for the controls).
-To make it live for everyone, add `data-pipe-variant = alt` to the Div with the other attributes.
+It is live when the Div with the other attributes has `data-pipe-variant = alt`. Remove that attribute
+to go back to the main version. `?pipes-alt` and `?pipes-main` in the page URL show one or the other
+just for you, whatever the page is set to (`&pipes-tune` for the controls).
 
 It has five hover rows:
 
@@ -125,10 +126,14 @@ It has five hover rows:
 The alt version keeps its own framing. A setting is read from `data-pipe-alt-<name>` first, then the
 built-in alt default, then the normal `data-pipe-<name>` attribute. In the tune panel, "Copy as Bricks
 attributes" gives `data-pipe-alt-...` lines, so the main version's attributes are never changed.
-Built-in alt defaults: a wider resting view (`rest-zoom 0.85`, `rest-x 0.47`, `rest-y 0.5`) and the
-zoom amount and focus for rows 02 to 05 (`zoom2` .. `zoom5`, with `-x` / `-y`), camera angles 0.
+The alt is drawn through a slightly wider lens than the main version (same viewpoint, everything 0.85x),
+so its positions are in its own picture. Built-in alt defaults: the resting focus and the zoom amount and
+focus for all five rows (`zoom1` .. `zoom5`, with `-x` / `-y`); camera angles for rows 02 to 05 are 0.
 
 The script handles up to five rows (`zoom1` .. `zoom5`, `cam1-*` .. `cam5-*`). The main version only
 has stops for its first three rows.
 
-The loading still (`docs/riven-pipe-rest.webp`) shows the main version, so the alt hides it while the 3D loads.
+Stills: the page image must be a still of the build the page is set to. `docs/riven-pipe-alt-rest.webp`
+is the alt, `docs/riven-pipe-rest.webp` the main version. It shows while the 3D loads, is the whole
+picture for visitors who ask for reduced motion, and is the fallback where 3D is not available.
+A build forced from the URL hides the still, because it shows the other build.

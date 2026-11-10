@@ -75,17 +75,23 @@
   var ZOOM_DEFAULTS = { restZoom: 1, restX: 0.585, restY: 0.475, zoom1X: 0.565, zoom1Y: 0.22, zoomTime: 1.75 };
   var attrName = function (k) { return "data-pipe-" + k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); }); };
   // Alt build (client add-ons: inline ball valve + temperature sensor, third riser removed).
-  // Preview with ?pipes-alt; make it live with data-pipe-variant="alt" on the zoom frame.
+  // Live when the zoom frame has data-pipe-variant="alt"; ?pipes-alt previews it, ?pipes-main shows the other one.
   // It has its own framing: a setting comes from data-pipe-alt-<name> if present, then the alt
   // default below, then the normal data-pipe-<name> attribute.
-  var isAlt = function (el) { return /[?&]pipes-alt\b/.test(location.search) || (!!el && el.getAttribute("data-pipe-variant") === "alt"); };
-  // Its five hover rows: 01 the long top pipe (uses the main version's 01 settings), 02 the valve,
-  // 03 the top elbow, 04 the flange joint on the main pipe, 05 the temperature sensor.
-  var ALT_DEFAULTS = { restZoom: 0.85, restX: 0.47, restY: 0.5,                       // wider, so the valve on the left is in view
-                       zoom2: 2.6, zoom2X: 0.193, zoom2Y: 0.605, cam2Turn: 0, cam2Tilt: 0, cam2Roll: 0,
-                       zoom3: 3, zoom3X: 0.362, zoom3Y: 0.095, cam3Turn: 0, cam3Tilt: 0, cam3Roll: 0,
-                       zoom4: 2.8, zoom4X: 0.453, zoom4Y: 0.682, cam4Turn: 0, cam4Tilt: 0, cam4Roll: 0,
-                       zoom5: 3, zoom5X: 0.75, zoom5Y: 0.55, cam5Turn: 0, cam5Tilt: 0, cam5Roll: 0 };
+  // ?pipes-alt / ?pipes-main force one build for the person looking, whatever the page is set to.
+  var forcedVariant = /[?&]pipes-alt\b/.test(location.search) ? "alt" : /[?&]pipes-main\b/.test(location.search) ? "main" : "";
+  var pageVariant = function (el) { return !!el && el.getAttribute("data-pipe-variant") === "alt" ? "alt" : "main"; };
+  var isAlt = function (el) { return (forcedVariant || pageVariant(el)) === "alt"; };
+  // the page image is a still of the build the page is set to; a forced build has no matching still
+  var stillFits = function (el) { return !forcedVariant || forcedVariant === pageVariant(el); };
+  // Its five hover rows: 01 the long top pipe, 02 the valve, 03 the top elbow, 04 the flange joint
+  // on the main pipe, 05 the temperature sensor. Positions are in the alt's own (wider) picture.
+  var ALT_DEFAULTS = { restZoom: 1, restX: 0.4745, restY: 0.5,
+                       zoom1: 4.0, zoom1X: 0.5042, zoom1Y: 0.262,
+                       zoom2: 3.05, zoom2X: 0.239, zoom2Y: 0.5892, cam2Turn: 0, cam2Tilt: 0, cam2Roll: 0,
+                       zoom3: 3.55, zoom3X: 0.3827, zoom3Y: 0.1557, cam3Turn: 0, cam3Tilt: 0, cam3Roll: 0,
+                       zoom4: 3.3, zoom4X: 0.4601, zoom4Y: 0.6547, cam4Turn: 0, cam4Tilt: 0, cam4Roll: 0,
+                       zoom5: 3.55, zoom5X: 0.7125, zoom5Y: 0.5425, cam5Turn: 0, cam5Tilt: 0, cam5Roll: 0 };
   var altName = function (k) { return attrName(k).replace("data-pipe-", "data-pipe-alt-"); };
   // attribute value for a setting (null if none). skipOwn: ignore the alt build's own attributes.
   function attrOf(el, k, skipOwn) {
@@ -273,7 +279,7 @@
             "diffuseColor.rgb *= mix(vec3(1.0), vec3(1.0, 0.975, 0.94), uWarm);");
       };
     }
-    var P = G.PHOTO;
+    var P = ALT && G.PHOTO_ALT ? G.PHOTO_ALT : G.PHOTO;
     var camera = new THREE.PerspectiveCamera(P.fov, 3164 / 1988, 0.1, 400);
     var baseEye = new THREE.Vector3().fromArray(P.eye), baseTgt = new THREE.Vector3().fromArray(P.target);
 
@@ -823,21 +829,26 @@
     frames.forEach(scrollStops);
     // Reduced motion: no 3D and no zooming, just the still of the resting pipe (the page image)
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      if (!document.getElementById("pipes3d-still-css")) {
-        var rs = document.createElement("style"); rs.id = "pipes3d-still-css";
-        rs.textContent = "@media (prefers-reduced-motion: reduce){.flow-illustration.zoom .zoom-stage{transform:none!important;transition:none!important}}";
-        document.head.appendChild(rs);
-      }
+      // hold the still at the resting view (same framing as the 3D at rest) and never zoom it
+      frames.forEach(function (f) {
+        var st = f.querySelector(".zoom-stage"); if (!st) return;
+        var Z = readZoom(f), S = Z.restZoom, X = Z.restX, Y = Z.restY;
+        st.style.setProperty("transform", "translate(clamp(100cqw - " + S + " * var(--zoom-w), 50cqw - " + S * X + " * var(--zoom-w), 0px), " +
+          "clamp(100cqh - " + S + " * var(--zoom-h), 50cqh - " + S * Y + " * var(--zoom-h), 0px)) scale(" + S + ")", "important");
+        st.style.setProperty("transition", "none", "important");
+      });
       return;
     }
-    try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) return; } catch (e) { return; }
+    // no WebGL: the flat image stays, zooming to the same stops (kept inside the image edges)
+    var noGL = function () { frames.forEach(function (f) { if (!f.dataset.pipes3d) { f.dataset.pipes3d = "failed"; applyZoom(readZoom(f)); } }); };
+    try { var c = document.createElement("canvas"); if (!(c.getContext("webgl2") || c.getContext("webgl"))) { noGL(); return; } } catch (e) { noGL(); return; }
     // the page image is a still of the 3D view, so it uses the same framing from the start
     // (no jump when the 3D takes over)
     frames.forEach(function (f) {
       if (f.dataset.pipes3d) return;
       f.dataset.pipes3d = "pending"; applyZoom(readZoom(f));
-      // the alt build has no still of its own yet: keep the old one (without the new parts) out of sight
-      if (isAlt(f)) { var im = f.querySelector(".zoom-img"); if (im) im.style.opacity = "0"; }
+      // a build forced from the URL has no matching still: keep the page's one out of sight
+      if (!stillFits(f)) { var im = f.querySelector(".zoom-img"); if (im) im.style.opacity = "0"; }
     });
     var go = function () {
       var needSteel = /[?&]pipes-stainless\b/.test(location.search) ||

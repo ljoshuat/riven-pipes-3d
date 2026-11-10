@@ -654,5 +654,9 @@ const G = (() => {
   }
   // camera fitted to the photo (2000 x 1258, vertical fov 70.85)
   const PHOTO = { eye: [7.6125, 5.2219, 11.1812], target: [2.0140, 1.3088, -13.3690], fov: 72.966, aspect: 2000 / 1258 };
-  return { build, featureSegments, silhouetteSegments, polylinesToSegments, meshArrays, prepSil, silFast, PHOTO };
+  // The alt build is seen through a slightly wider lens (everything 0.85x about the centre of the
+  // picture, same viewpoint), so the valve on the far left and the sensor on the right both sit
+  // inside the resting frame, and its still image can cover the frame like the main one does.
+  const PHOTO_ALT = Object.assign({}, PHOTO, { fov: 2 * Math.atan(Math.tan(PHOTO.fov * Math.PI / 360) / 0.85) * 180 / Math.PI });
+  return { build, featureSegments, silhouetteSegments, polylinesToSegments, meshArrays, prepSil, silFast, PHOTO, PHOTO_ALT };
 })();
