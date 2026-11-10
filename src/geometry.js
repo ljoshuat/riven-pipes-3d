@@ -560,7 +560,12 @@ const G = (() => {
         for (const sc of P.flanges) if (sc + D.hub > s0 && sc > a1 - D.hub) s0 = sc + D.hub;
         s0 += 0.05;
         const step = ringGap > 0 ? ringGap * Math.max(0.7, P.r) : 0;
-        if (step) for (let s = Math.ceil(s0 / step) * step; s < Lp - 0.2; s += step) out.rings.push(ringAt(P, s, rr));
+        // same stations as the pipe's own rings, so each blue ring sits exactly on a drawn ring
+        if (step) {
+          const zones = P.flanges.map((sc) => [sc - D.hub - 0.2, sc + D.hub + 0.2]);
+          for (let s = (P.tee ? 1.6 : 0) + step; s < Lp - 0.2; s += step)
+            if (s > s0 && !zones.some(([za, zb]) => s > za && s < zb)) out.rings.push(ringAt(P, s, rr));
+        }
         const nl = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, P.r / 0.9)) / 4) * 4);
         for (let k = 0; k < nl; k++) {
           const th = 2 * Math.PI * k / nl + Math.PI / nl, L = [];

@@ -562,7 +562,12 @@ const G = (() => {
         for (const sc of P.flanges) if (sc + D.hub > s0 && sc > a1 - D.hub) s0 = sc + D.hub;
         s0 += 0.05;
         const step = ringGap > 0 ? ringGap * Math.max(0.7, P.r) : 0;
-        if (step) for (let s = Math.ceil(s0 / step) * step; s < Lp - 0.2; s += step) out.rings.push(ringAt(P, s, rr));
+        // same stations as the pipe's own rings, so each blue ring sits exactly on a drawn ring
+        if (step) {
+          const zones = P.flanges.map((sc) => [sc - D.hub - 0.2, sc + D.hub + 0.2]);
+          for (let s = (P.tee ? 1.6 : 0) + step; s < Lp - 0.2; s += step)
+            if (s > s0 && !zones.some(([za, zb]) => s > za && s < zb)) out.rings.push(ringAt(P, s, rr));
+        }
         const nl = Math.max(8, Math.round(nLines * Math.min(1.1, Math.max(0.5, P.r / 0.9)) / 4) * 4);
         for (let k = 0; k < nl; k++) {
           const th = 2 * Math.PI * k / nl + Math.PI / nl, L = [];
@@ -995,6 +1000,7 @@ window.RivenPipesG = G;
     };
     // soft outer glow: wider, faint, additive copies of the highlight lines (rings and thin lines)
     var GLOW = [[2.6, 0.30], [5, 0.14], [9, 0.06]];
+    var HL_REF = 640;   // picture width (px) from which the highlight is drawn at its full set width (desktop is ~680)
     M.glowR = GLOW.map(function () { return lineMat({ linewidth: 1, opacity: 0, blending: THREE.AdditiveBlending }, true); });
     M.glowL = GLOW.map(function () { return lineMat({ linewidth: 1, opacity: 0, blending: THREE.AdditiveBlending }, true); });
     var fcs = getComputedStyle(frame);
@@ -1012,7 +1018,10 @@ window.RivenPipesG = G;
       M.edge.linewidth = LOOK.outline * pr; M.detail.linewidth = LOOK.detail * pr;
       M.ring.linewidth = LOOK.detail * 0.85 * pr; M.hidden.linewidth = Math.max(0.6, LOOK.detail * 0.9 * pr);
       M.detail.opacity = LOOK.detailOpacity; M.ring.opacity = LOOK.ringOpacity; M.hidden.opacity = LOOK.hidden;
-      M.hl.linewidth = LOOK.highlight * pr; M.hlLine.linewidth = Math.max(1, LOOK.highlight * 0.5) * pr;
+      // line widths are fixed pixels, so on a phone-sized picture the blue reads about twice as heavy:
+      // scale the highlight (and with it the glow) down with the picture's width
+      var hk = Math.max(0.5, Math.min(1, (frame.clientWidth || HL_REF) / HL_REF));
+      M.hl.linewidth = Math.max(1, LOOK.highlight * hk * pr); M.hlLine.linewidth = Math.max(1, Math.max(1, LOOK.highlight * 0.5) * hk * pr);
       GLOW.forEach(function (g, i) {
         M.glowR[i].linewidth = M.hl.linewidth * (1 + (g[0] - 1) * LOOK.glowSize);
         M.glowL[i].linewidth = M.hlLine.linewidth * (1 + (g[0] - 1) * LOOK.glowSize);
