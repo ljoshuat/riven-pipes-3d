@@ -901,7 +901,10 @@ window.RivenPipesG = G;
     var steelMat = null, steelObj = null;
     if (STEEL) {
       var pm = new THREE.PMREMGenerator(renderer);
-      scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+      // placeholder reflection map until the HDR photo arrives (the drawing stays hidden until then).
+      // An empty scene keeps the steel shader in its final form, so it compiles once, and skips
+      // building the RoomEnvironment room, which is only needed if the HDR fails to load.
+      scene.environment = pm.fromScene(new THREE.Scene(), 0).texture;
       var keyL = new THREE.DirectionalLight(0xffffff, LOOK.keyLight); keyL.position.set(-6, 14, 12); scene.add(keyL);
       // real reflections: an HDR photo of a warehouse (or studio/hall/city) wrapped round the pipe.
       // It goes on an inside-out sphere so it can be turned, then gets pre-blurred for the steel.
@@ -934,7 +937,11 @@ window.RivenPipesG = G;
           if (old) old.dispose();
           es.remove(envSphere); wake();
           requestAnimationFrame(reveal);
-        }).catch(function (e) { console.warn("pipes3d env", e); reveal(); });
+        }).catch(function (e) {
+          console.warn("pipes3d env", e);
+          if (THREE.RoomEnvironment) { var o = scene.environment; scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture; if (o) o.dispose(); wake(); }
+          reveal();
+        });
       };
       scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x0a0c0e, 0.35));
       steelMat = new THREE.MeshPhysicalMaterial({
@@ -1285,7 +1292,9 @@ window.RivenPipesG = G;
     });
 
     applyLook();
-    frameLoop(performance.now());
+    // first draw (where the shaders compile) in the next frame, so building the pipe and
+    // compiling its shaders are two shorter pauses instead of one long one
+    if (!raf) raf = requestAnimationFrame(frameLoop);
     if (STEEL) setTimeout(reveal, 5000); else requestAnimationFrame(reveal);
     if (/[?&]pipes-tune\b/.test(location.search)) tunePanel(frame, LOOK, ZOOM, wake, STEEL, ALT, function (k) {
       if (REBUILD[k]) { clearTimeout(tunePanel.t); tunePanel.t = setTimeout(function () { build(); wake(); }, 150); }
@@ -1560,13 +1569,19 @@ window.RivenPipesG = G;
         frames.forEach(function (f) { var im = f.querySelector(".zoom-img"); if (im) im.style.opacity = ""; });
       });
     };
-    // start loading when the section approaches the viewport
+    // Start loading when the section approaches the viewport, but never before the page itself has
+    // finished loading and the browser has a quiet moment, so the 3D setup can't hold up the first view.
+    // The still image is shown until then.
+    var whenIdle = function (fn) {
+      var idle = function () { if (window.requestIdleCallback) requestIdleCallback(fn, { timeout: 1500 }); else setTimeout(fn, 200); };
+      if (document.readyState === "complete") idle(); else window.addEventListener("load", idle, { once: true });
+    };
     if ("IntersectionObserver" in window) {
       var io = new IntersectionObserver(function (es) {
-        if (es.some(function (e) { return e.isIntersecting; })) { io.disconnect(); go(); }
-      }, { rootMargin: "1500px 0px" });
+        if (es.some(function (e) { return e.isIntersecting; })) { io.disconnect(); whenIdle(go); }
+      }, { rootMargin: "600px 0px" });
       frames.forEach(function (f) { io.observe(f); });
-    } else go();
+    } else whenIdle(go);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();
