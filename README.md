@@ -11,11 +11,12 @@ image's camera, so it stays crisp at every zoom and the highlight spots stay ali
 Bricks > Settings > Custom code > Body (footer) scripts:
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/ljoshuat/riven-pipes-3d@main/loader.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/ljoshuat/riven-pipes-3d@v1.1.0/riven-pipes-3d.min.js" defer></script>
 ```
 
-The script finds `.flow-illustration.zoom`, loads three.js r147 from jsDelivr when the section is near
-the viewport, and keeps the original image as the fallback.
+The script finds `.flow-illustration.zoom` and keeps the original image as the fallback. It waits until
+the page has finished loading and the section is within about 600px of the screen, then loads three.js
+r147 from jsDelivr, so the 3D setup never holds up the first view.
 
 ## Behaviour
 
@@ -60,14 +61,17 @@ Hovering 01/02/03 highlights the matching weld ring on the 3D drawing in the sit
 
 ## Releasing
 
-Edit `src/`, run `python3 build.py`, commit and push to `main`. The site loads `loader.js`, which looks up
-the latest commit on `main` (GitHub API, cached 5 minutes per visitor; always fresh with `?pipes-tune`) and
-loads the script pinned to that commit, so updates are live on the next page load. As a backup, the
-"Refresh jsDelivr cache" GitHub Action purges jsDelivr on every push, so changes go live in a minute or two
-with no edit in Bricks. Visitors' browsers may keep the previous copy for up to about 12 hours.
+Edit `src/`, run `python3 build.py`, commit and push to `main`, then tag the release (`git tag v1.2.0 && git push origin v1.2.0`)
+and change the version in the Bricks script line. The site loads a fixed version on purpose: a tagged
+jsDelivr URL is cached at the edge and in visitors' browsers, and there is no GitHub API lookup on each visit.
 
-To freeze a known-good version instead, point the Bricks line at a commit ID or tag
-(`@<commit>` / `@v1.2.0`).
+To try `main` before tagging, preview it just for yourself with `?pipes-tune` on a page that still uses
+`loader.min.js`, or point the Bricks line at `@main` temporarily. (`loader.js` still works: it looks up the
+latest commit on `main` through the GitHub API on each new visit, which adds a request, and up to 2.5 s
+of waiting if GitHub is slow, before the 3D can start.)
+
+The reflection photos in `env/` are 512x256 Radiance HDR files (halved from the 1024x512 Poly Haven originals;
+the steel's reflections are blurred, so the extra detail never showed and cost about 1.2 MB per visit).
 
 ## Stainless + x-ray mode
 
